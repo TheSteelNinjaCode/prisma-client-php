@@ -1,0 +1,34 @@
+{
+  "name": "prisma-client-php",
+  "description": "Prisma Client PHP is an auto-generated query builder that enables type-safe database access in PHP.",
+  "version": "0.0.1",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "encrypt": "tsx dist/prisma-client-php/encrypt.ts",
+    "decrypt": "tsx dist/prisma-client-php/decrypt.ts",
+    "read-file": "tsx dist/prisma-client-php/read-file.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "bin": {
+    "ppo": "/dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheSteelNinjaCode/prisma-client-php.git"
+  },
+  "author": "Jefferson Abraham Omier <thesteelninjacode@gmail.com>",
+  "license": "MIT",
+  "keywords": [
+    "prisma",
+    "client",
+    "php",
+    "prisma-client",
+    "prisma-client-php"
+  ],
+  "devDependencies": {
+    "chalk": "^5.4.1",
+    "crypto-js": "^4.2.0"
+  }
+}
