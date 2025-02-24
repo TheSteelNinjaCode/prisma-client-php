@@ -1,4 +1,4 @@
-import { resolve } from "path";
+import path, { resolve } from "path";
 import { readFileSync, writeFileSync } from "fs";
 import psdk from "@prisma/internals";
 import { fileURLToPath } from "url";
