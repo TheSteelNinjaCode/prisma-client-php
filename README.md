@@ -28,13 +28,29 @@ Follow these steps to install and set up Prisma Client PHP:
    npx create-prisma-php-app@latest
    ```
 
-3. **Generate Prisma Client PHP classes** by running:
+3. **Remember to chose Prisma PHP ORM when prompted**.
+
+4. **Generate Prisma Client PHP classes** by running:
 
    ```bash
    npx ppo generate
    ```
 
 This command will convert your `schema.prisma` models into PHP classes, enabling you to interact with your database using these generated classes.
+
+## Adding Prisma Client PHP to an Existing Prisma PHP Project
+
+If you already have a Prisma PHP project and want to integrate Prisma Client PHP, follow these steps:
+
+1. **Open your terminal**.
+
+2. **Install Prisma Client PHP** by running the following command:
+
+   ```bash
+   npx ppo init
+   ```
+
+This command will install all the necessary packages required for Prisma Client PHP to function within your existing project.
 
 ## Features
 
