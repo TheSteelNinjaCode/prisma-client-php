@@ -71,7 +71,7 @@ function installPackages(isPrismaPHP) {
   const packagesStr = packages.join(" ");
   try {
     console.log(`Installing packages: ${packagesStr}`);
-    execSync(`npm install ${packagesStr}`, {
+    execSync(`npm install --save-dev ${packagesStr}`, {
       stdio: "inherit",
       cwd: process.cwd(),
     });
