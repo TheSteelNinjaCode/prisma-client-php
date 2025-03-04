@@ -40,17 +40,25 @@ This command will convert your `schema.prisma` models into PHP classes, enabling
 
 ## Adding Prisma Client PHP to an Existing Prisma PHP Project
 
-If you already have a Prisma PHP project and want to integrate Prisma Client PHP, follow these steps:
+To integrate Prisma Client PHP into an existing Prisma PHP project, follow these steps:
 
 1. **Open your terminal**.
 
-2. **Install Prisma Client PHP** by running the following command:
+2. **Install Prisma Client PHP** globally by running:
+
+   ```bash
+   npm install -g prisma-client-php@latest
+   ```
+
+   This command installs the Prisma Client PHP package globally, making it available for use in any PHP project.
+
+3. **Initialize Prisma Client PHP** in your project by running:
 
    ```bash
    npx ppo init
    ```
 
-This command will install all the necessary packages required for Prisma Client PHP to function within your existing project.
+   This command sets up all necessary packages for Prisma Client PHP to function within your existing project.
 
 ## Features
 

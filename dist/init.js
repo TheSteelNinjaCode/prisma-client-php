@@ -10,7 +10,7 @@ const { __dirname } = getFileMeta();
  * The `base` parameter represents the original root of the copy.
  * It is used for computing a relative path for cleaner logging.
  */
-function copyRecursiveSync(src, dest, base = src) {
+function copyRecursiveSync(src, dest, base = src, isPrismaPHP = false) {
   if (!fs.existsSync(src)) {
     console.error(`Source folder does not exist: ${src}`);
     return;
@@ -22,8 +22,13 @@ function copyRecursiveSync(src, dest, base = src) {
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
+    // **Skip Validator.php when isPrismaPHP is true**
+    if (isPrismaPHP && srcPath.endsWith("src/Lib/Validator.php")) {
+      console.log(`Skipping file: ${srcPath}`);
+      continue;
+    }
     if (entry.isDirectory()) {
-      copyRecursiveSync(srcPath, destPath, base);
+      copyRecursiveSync(srcPath, destPath, base, isPrismaPHP);
     } else {
       // Compute the relative path for logging
       const relative = path.relative(base, srcPath);
@@ -52,12 +57,15 @@ const directoriesToCopy = [
 /**
  * Installs specified packages using npm in the current working directory.
  */
-function installPackages() {
+function installPackages(isPrismaPHP) {
   const packages = [
     "prisma@^6.4.1",
     "@prisma/client@^6.4.1",
     "@prisma/internals@^6.4.1",
   ];
+  if (!isPrismaPHP) {
+    packages.push("tsx@^4.19.3", "typescript@^5.8.2", "@types/node@^22.13.8");
+  }
   const packagesStr = packages.join(" ");
   try {
     console.log(`Installing packages: ${packagesStr}`);
@@ -65,6 +73,12 @@ function installPackages() {
       stdio: "inherit",
       cwd: process.cwd(),
     });
+    if (!isPrismaPHP) {
+      execSync("npx tsc --init", {
+        stdio: "inherit",
+        cwd: process.cwd(),
+      });
+    }
     console.log("Packages installed successfully.");
   } catch (error) {
     console.error("Error installing packages:", error);
@@ -112,20 +126,25 @@ async function updateComposerJson(baseDir) {
   console.log("composer.json updated successfully.");
 }
 /**
- * Installs the Composer package "calicastle/cuid": "^2.0.0" using the require command.
+ * Installs the specified Composer packages using the require command.
  */
-function runComposerInstall() {
+function runComposerInstall(packages) {
+  if (packages.length === 0) {
+    console.warn("No Composer packages specified for installation.");
+    return;
+  }
+  const packageList = packages.join(" ");
   try {
-    console.log("Installing Composer package calicastle/cuid...");
+    console.log(`Installing Composer packages: ${packageList}...`);
     execSync(
-      `C:\\xampp\\php\\php.exe C:\\ProgramData\\ComposerSetup\\bin\\composer.phar require calicastle/cuid:^2.0.0`,
+      `C:\\xampp\\php\\php.exe C:\\ProgramData\\ComposerSetup\\bin\\composer.phar require ${packageList}`,
       {
         stdio: "inherit",
       }
     );
-    console.log("Composer package calicastle/cuid installed successfully.");
+    console.log("Composer packages installed successfully.");
   } catch (error) {
-    console.error("Error installing Composer package calicastle/cuid:", error);
+    console.error("Error installing Composer packages:", error);
   }
 }
 /**
@@ -138,17 +157,24 @@ function runComposerInstall() {
 async function main() {
   const isPrismaPHP = process.argv.includes("--prisma-php");
   if (isPrismaPHP) {
-    // Always update composer.json
     await updateComposerJson(process.cwd());
   } else {
-    // Install the Composer package "calicastle/cuid": "^2.0.0"
-    runComposerInstall();
+    runComposerInstall([
+      "ezyang/htmlpurifier:^4.18.0",
+      "calicastle/cuid:^2.0.0",
+      "symfony/uid:^7.2.0",
+      "brick/math:^0.12.1",
+    ]);
   }
-  installPackages();
+  installPackages(isPrismaPHP);
   initPrisma();
   directoriesToCopy.forEach((config) => {
-    // Pass the srcFolder as the base for computing relative paths in the log
-    copyRecursiveSync(config.srcFolder, config.destFolder, config.srcFolder);
+    copyRecursiveSync(
+      config.srcFolder,
+      config.destFolder,
+      config.srcFolder,
+      isPrismaPHP
+    );
   });
   console.log("Finished copying directories.");
 }

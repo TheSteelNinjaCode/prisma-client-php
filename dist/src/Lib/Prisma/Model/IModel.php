@@ -9,10 +9,10 @@ interface IModel
     // public function createManyAndReturn(array $data);
     public function create(array $data);
     // public function deleteMany(array $criteria);
-    // public function delete(array $criteria);
-    // public function findFirst(array $criteria);
+    public function delete(array $criteria);
+    public function findFirst(array $criteria);
     // public function findFirstOrThrow(array $criteria);
-    // public function findMany(array $criteria);
+    public function findMany(array $criteria);
     public function findUnique(array $criteria);
     // public function findUniqueOrThrow(array $criteria);
     // public function groupBy(array $by);
