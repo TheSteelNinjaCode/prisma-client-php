@@ -210,6 +210,7 @@ final class PPHPUtility
                 return ArrayType::Value;
             }
         }
+        return ArrayType::Value; // Default return value if array is empty
     }
 
     /**

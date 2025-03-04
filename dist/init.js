@@ -22,20 +22,19 @@ function copyRecursiveSync(src, dest, base = src, isPrismaPHP = false) {
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
+    const relative = path.relative(base, srcPath);
+    const display = path.join(path.basename(base), relative);
     // **Normalize Path to Avoid Issues on Windows**
     const relativePath = path.relative(__dirname, srcPath);
     const validatorFile = path.normalize("src/Lib/Validator.php");
     // **Skip Validator.php when isPrismaPHP is true**
     if (isPrismaPHP && relativePath === validatorFile) {
-      console.log(`Skipping file: ${srcPath}`);
+      console.log(`Skipping file: ${display}`);
       continue;
     }
     if (entry.isDirectory()) {
       copyRecursiveSync(srcPath, destPath, base, isPrismaPHP);
     } else {
-      // Compute the relative path for logging
-      const relative = path.relative(base, srcPath);
-      const display = path.join(path.basename(base), relative);
       // Copy the file (this will overwrite if it exists)
       fs.copyFileSync(srcPath, destPath);
       console.log(`Copied file: ${display}`);
