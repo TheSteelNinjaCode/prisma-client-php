@@ -22,8 +22,11 @@ function copyRecursiveSync(src, dest, base = src, isPrismaPHP = false) {
   for (const entry of entries) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
+    // **Normalize Path to Avoid Issues on Windows**
+    const relativePath = path.relative(__dirname, srcPath);
+    const validatorFile = path.normalize("src/Lib/Validator.php");
     // **Skip Validator.php when isPrismaPHP is true**
-    if (isPrismaPHP && srcPath.endsWith("src/Lib/Validator.php")) {
+    if (isPrismaPHP && relativePath === validatorFile) {
       console.log(`Skipping file: ${srcPath}`);
       continue;
     }
