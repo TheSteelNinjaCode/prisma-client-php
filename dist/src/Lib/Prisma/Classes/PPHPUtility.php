@@ -11,6 +11,7 @@ use Brick\Math\BigInteger;
 use ReflectionUnionType;
 use ReflectionNamedType;
 use Exception;
+use PDO;
 
 enum ArrayType: string
 {
@@ -70,6 +71,8 @@ final class PPHPUtility
                 if (is_string($key) && is_array($value)) {
                     if (isset($value['select'])) {
                         $relatedEntityFields[$key] = $value['select'];
+                    } elseif (isset($value['include'])) {
+                        $relatedEntityFields[$key] = $value['include'];
                     } else {
                         if (is_array($value) && empty($value)) {
                             $relatedEntityFields[$key] = [$key];
@@ -97,17 +100,12 @@ final class PPHPUtility
                             continue;
                         }
 
-                        $isRelationalOrInverse = false;
-                        if (isset($fields[$fieldName]['decorators'])) {
-                            foreach ($fields[$fieldName]['decorators'] as $decoratorKey => $decoratorValue) {
-                                if ($decoratorKey === 'relation' || $decoratorKey === 'inverseRelation') {
-                                    $isRelationalOrInverse = true;
-                                    break;
-                                }
-                            }
+                        $isObject = false;
+                        if (isset($fields[$fieldName]) && $fields[$fieldName]['kind'] === 'object') {
+                            $isObject = true;
                         }
 
-                        if (!$isRelationalOrInverse) {
+                        if (!$isObject) {
                             if (in_array($fieldName, $primaryEntityFields)) continue;
                             $primaryEntityFields[] = $fieldName;
                         }
@@ -210,7 +208,7 @@ final class PPHPUtility
                 return ArrayType::Value;
             }
         }
-        return ArrayType::Value; // Default return value if array is empty
+        return ArrayType::Value;
     }
 
     /**
@@ -547,38 +545,6 @@ final class PPHPUtility
     }
 
     /**
-     * Parses a column string into an array of segments.
-     *
-     * This method performs the following steps:
-     * 1. Replaces occurrences of '._.' with '._ARRAY_.' in the input string.
-     * 2. Splits the modified string on '.' to create an array of parts.
-     * 3. Converts '_ARRAY_' placeholders into special markers in the resulting array.
-     *
-     * @param string $column The column string to be parsed.
-     * @return array An array of segments derived from the input column string.
-     */
-    public static function parseColumn(string $column): array
-    {
-        // Step 1: replace ._. with ._ARRAY_.
-        $column = str_replace('._.', '._ARRAY_.', $column);
-
-        // Step 2: split on '.'
-        $parts = explode('.', $column);
-
-        // Step 3: convert '_ARRAY_' placeholders into special markers in the array
-        $segments = [];
-        foreach ($parts as $part) {
-            if ($part === '_ARRAY_') {
-                $segments[] = '_ARRAY_';
-            } else {
-                $segments[] = $part;
-            }
-        }
-
-        return $segments;
-    }
-
-    /**
      * Recursively builds SQL JOIN statements and SELECT fields for nested relations.
      *
      * @param array $include An array of relations to include, with optional nested includes.
@@ -596,7 +562,7 @@ final class PPHPUtility
         string $parentAlias,
         array &$joins,
         array &$selectFields,
-        mixed $pdo,
+        PDO $pdo,
         string $dbType,
         ?object $model = null,
         string $defaultJoinType = 'INNER JOIN',
@@ -619,19 +585,19 @@ final class PPHPUtility
             $isNested = !empty($nestedInclude);
 
             // 1. Fetch metadata
-            if (!isset($model->fields[$relationName])) {
+            if (!isset($model->_fields[$relationName])) {
                 throw new Exception("Relation metadata not defined for '$relationName' in " . get_class($model));
             }
 
             // 2. Identify related class
-            $relatedClassName = "Lib\\Prisma\\Classes\\" . $model->fields[$relationName]['type'] ?? null;
+            $relatedClassName = "Lib\\Prisma\\Classes\\" . $model->_fields[$relationName]['type'] ?? null;
             $relatedClass = new $relatedClassName($pdo);
             if (!$relatedClass) {
                 throw new Exception("Could not instantiate class for relation '$relationName'.");
             }
 
             // 3. Determine DB table
-            $joinTable = $relatedClass->tableName ?? null;
+            $joinTable = $relatedClass->_tableName ?? null;
             if (!$joinTable) {
                 throw new Exception("No valid table name found for relation '$relationName'.");
             }
@@ -640,7 +606,7 @@ final class PPHPUtility
 
             // 5. Build the ON condition
             $joinConditions = [];
-            $fieldsRelatedWithKeys = $model->fieldsRelatedWithKeys[$relationName] ?? null;
+            $fieldsRelatedWithKeys = $model->_fieldsRelatedWithKeys[$relationName] ?? null;
             if ($fieldsRelatedWithKeys) {
                 $relationToFields = $fieldsRelatedWithKeys['relationToFields'] ?? [];
                 $relationFromFields = $fieldsRelatedWithKeys['relationFromFields'] ?? [];
@@ -655,7 +621,7 @@ final class PPHPUtility
                         throw new Exception("Missing references/fields for '$relationName' at index $index.");
                     }
 
-                    $fromFieldExists = array_key_exists($fromField, $model->fields);
+                    $fromFieldExists = array_key_exists($fromField, $model->_fields);
 
                     if ($fromFieldExists) {
                         $joinConditions[] = sprintf(
@@ -729,129 +695,292 @@ final class PPHPUtility
         }
     }
 
-    public static function arrayToObjectRecursive($data)
+    public static function compareStringsAlphabetically($string1, $string2)
     {
-        // If it's not an array, there's nothing to convert; just return as-is
-        if (!is_array($data)) {
-            return $data;
-        }
+        $lowerString1 = strtolower($string1);
+        $lowerString2 = strtolower($string2);
 
-        // Convert each item in the array and then convert the array itself
-        foreach ($data as $key => $value) {
-            $data[$key] = self::arrayToObjectRecursive($value);
+        if ($lowerString1 < $lowerString2) {
+            return [
+                'A' => $string1,
+                'B' => $string2,
+                'Name' => "_" . ucfirst($string1) . "To" . ucfirst($string2)
+            ];
+        } else {
+            return [
+                'A' => $string2,
+                'B' => $string1,
+                'Name' => "_" . ucfirst($string2) . "To" . ucfirst($string1)
+            ];
         }
-
-        return (object) $data;
     }
 
-    public static function arrayToClassRecursive(array $data, string $class)
-    {
-        if (!class_exists($class)) {
-            throw new InvalidArgumentException("Class {$class} does not exist.");
+    public static function processRelation(
+        string $fieldName,
+        array $fieldData,
+        array $relationFromFields,
+        array $relationToFields,
+        string $relatedClassName,
+        PDO $pdo,
+        bool $requestOption = true,
+    ): array {
+        if (count($relationFromFields) !== count($relationToFields)) {
+            throw new Exception("Mismatch between 'relationFromFields' and 'relationToFields' for relation '$fieldName'.");
         }
 
-        $reflection = new ReflectionClass($class);
-        $instance = $reflection->newInstanceWithoutConstructor();
-        $properties = $reflection->getProperties();
+        $reflection = new ReflectionClass($relatedClassName);
+        $relatedClass = $reflection->newInstance($pdo);
 
-        foreach ($properties as $property) {
-            $propertyName = $property->getName();
+        if (isset($fieldData['create'])) {
+            $relatedData = ['data' => $fieldData['create']];
+            $relatedResult = $relatedClass->create($relatedData);
+        } elseif (isset($fieldData['connect'])) {
+            $relatedData = ['where' => $fieldData['connect']];
+            $relatedResult = $relatedClass->findUnique($relatedData);
+        } elseif (isset($fieldData['connectOrCreate'])) {
+            $relatedData = ['where' => $fieldData['connectOrCreate']['where']];
+            $relatedResult = $relatedClass->findUnique($relatedData);
 
-            if (array_key_exists($propertyName, $data)) {
-                $propertyType = $property->getType();
-                $typeNames = [];
+            if (!$relatedResult) {
+                $relatedData = ['data' => $fieldData['connectOrCreate']['create']];
+                $relatedResult = $relatedClass->create($relatedData);
+            }
+        } else {
+            throw new Exception("No valid action provided for relation '$fieldName'.");
+        }
 
-                if ($propertyType instanceof ReflectionUnionType) {
-                    $typeNames = array_map(fn($t) => $t->getName(), $propertyType->getTypes());
-                } elseif ($propertyType instanceof ReflectionNamedType) {
-                    $typeNames[] = $propertyType->getName();
-                }
+        $relatedResult = (array) $relatedResult;
 
-                if (in_array(DateTime::class, $typeNames)) {
-                    $instance->$propertyName = !empty($data[$propertyName])
-                        ? new DateTime($data[$propertyName])
-                        : null;
-                } elseif (in_array(BigDecimal::class, $typeNames)) {
-                    $instance->$propertyName = BigDecimal::of($data[$propertyName]);
-                } elseif (in_array(BigInteger::class, $typeNames)) {
-                    $instance->$propertyName = BigInteger::of($data[$propertyName]);
-                } elseif (count(array_intersect($typeNames, ['int', 'float', 'string', 'bool'])) > 0) {
-                    $instance->$propertyName = $data[$propertyName];
-                } elseif (in_array('array', $typeNames) && isset($data[$propertyName]) && is_array($data[$propertyName])) {
-                    // Check array type
-                    $arrayType = self::checkArrayContents($data[$propertyName]);
+        if (!$requestOption) {
+            return $relatedResult;
+        }
 
-                    // Handle array-to-object conversion
-                    $docComment = $property->getDocComment();
-                    if ($docComment && preg_match('/@var\s+([^\s\[\]]+)\[]/', $docComment, $matches)) {
-                        $elementType = $matches[1];
-                        if (class_exists($elementType)) {
-                            if ($arrayType === ArrayType::Indexed) {
-                                $instance->$propertyName = array_map(
-                                    fn($item) => self::arrayToClassRecursive($item, $elementType),
-                                    $data[$propertyName]
-                                );
-                            } else {
-                                // If associative, keep as array
-                                $instance->$propertyName = $data[$propertyName];
-                            }
-                        } else {
-                            $instance->$propertyName = $data[$propertyName]; // Default to raw array
-                        }
-                    } else {
-                        $instance->$propertyName = $data[$propertyName]; // Default to raw array
-                    }
-                } else {
-                    foreach ($typeNames as $typeName) {
-                        if (class_exists($typeName)) {
-                            if (is_array($data[$propertyName])) {
-                                $arrayType = self::checkArrayContents($data[$propertyName]);
+        if (!$relatedResult) {
+            throw new Exception("Failed to process related record for '$fieldName'.");
+        }
 
-                                if ($arrayType === ArrayType::Associative) {
-                                    $instance->$propertyName = self::arrayToClassRecursive($data[$propertyName], $typeName);
-                                } elseif ($arrayType === ArrayType::Indexed) {
-                                    $instance->$propertyName = array_map(
-                                        fn($item) => self::arrayToClassRecursive($item, $typeName),
-                                        $data[$propertyName] ?? []
-                                    );
-                                }
-                            } elseif ($data[$propertyName] instanceof $typeName) {
-                                $instance->$propertyName = $data[$propertyName];
-                            }
-                            break;
-                        }
-                    }
+        $bindings = [];
+        foreach ($relationFromFields as $index => $fromField) {
+            $toField = $relationToFields[$index];
+            if (!isset($relatedResult[$toField])) {
+                throw new Exception("The field '$toField' is missing in the related data for '$fieldName'.");
+            }
+
+            $bindings[$fromField] = $relatedResult[$toField];
+        }
+
+        return $bindings;
+    }
+
+    public static function mergeForeignKeysIfNeeded(
+        array $item,
+        string $action,
+        array $relationToFields,
+        array $relationFromFields,
+        $lastInsertId,
+        array $fields
+    ): array {
+        foreach ($relationToFields as $idx => $toField) {
+            if (!array_key_exists($toField, $fields)) {
+                continue;
+            }
+
+            $fromField = $relationFromFields[$idx] ?? null;
+            if (!$fromField) {
+                continue;
+            }
+
+            if ($action === 'create') {
+                $item[$fromField] = $lastInsertId;
+            } elseif ($action === 'connect') {
+                $item[$fromField] = $lastInsertId;
+            } elseif ($action === 'connectOrCreate') {
+                if (isset($item['where'])) {
+                    $item['where'][$fromField] = $lastInsertId;
                 }
             }
         }
 
-        return $instance;
+        return $item;
     }
 
-    /**
-     * Recursively sets a value in a multi-dimensional array
-     * based on an array of keys. E.g.:
-     *   setNestedValue($arr, ['post','categories','id'], 'some-id')
-     * becomes
-     *   $arr['post']['categories']['id'] = 'some-id';
-     */
-    public static function setNestedValue(array &$array, array $keys, $value)
-    {
-        // Take the first key from the array
-        $key = array_shift($keys);
-
-        // If this key doesn't exist yet, initialize it
-        if (!isset($array[$key])) {
-            // Decide if you want an empty array or some default
-            $array[$key] = [];
+    public static function populateIncludedRelations(
+        array $records,
+        array $includes,
+        array $fields,
+        array $fieldsRelatedWithKeys,
+        PDO $pdo
+    ): array {
+        $isSingle = !isset($records[0]) || !is_array($records[0]);
+        if ($isSingle) {
+            $records = [$records];
         }
 
-        // If there are no more keys left, this is where we set the final value
-        if (empty($keys)) {
-            $array[$key] = $value;
-        } else {
-            // Otherwise, we recurse deeper
-            self::setNestedValue($array[$key], $keys, $value);
+        foreach ($records as $recordIndex => $singleRecord) {
+            foreach ($includes as $key => $value) {
+                if (!isset($fields[$key]) || !isset($fieldsRelatedWithKeys[$key])) {
+                    continue;
+                }
+
+                $relatedField = $fields[$key];
+                $relatedFieldKeys = $fieldsRelatedWithKeys[$key];
+
+                $relatedClass = "Lib\\Prisma\\Classes\\" . $relatedField['type'];
+                if (!class_exists($relatedClass)) {
+                    throw new Exception("Class $relatedClass does not exist.");
+                }
+
+                $reflectionClass = new ReflectionClass($relatedClass);
+                $relatedInstance = $reflectionClass->newInstance($pdo);
+                $relatedInstanceField = $relatedInstance->_fieldByRelationName[$relatedField['relationName']];
+
+                $whereConditions = [];
+                foreach ($relatedFieldKeys['relationFromFields'] as $index => $fromField) {
+                    $toField = $relatedFieldKeys['relationToFields'][$index];
+
+                    if (!array_key_exists($toField, $singleRecord)) {
+                        continue 2;
+                    }
+
+                    if (empty($relatedInstanceField['relationFromFields']) && empty($relatedInstanceField['relationToFields'])) {
+                        $whereConditions[$toField] = $singleRecord[$toField];
+                    } elseif ($relatedInstanceField['isList']) {
+                        $whereConditions[$toField] = $singleRecord[$fromField];
+                    } else {
+                        $whereConditions[$fromField] = $singleRecord[$toField];
+                    }
+                }
+
+                if (isset($value['where']) && is_array($value['where'])) {
+                    $whereConditions = array_merge($whereConditions, $value['where']);
+                }
+
+                $selectFields = [];
+                if (isset($value['select']) && is_array($value['select'])) {
+                    foreach ($value['select'] as $field => $subSelect) {
+                        if (is_array($subSelect)) {
+                            $selectFields[$field] = $subSelect;
+                        } elseif ((bool) $subSelect === true) {
+                            if (is_numeric($field)) {
+                                $selectFields[$field] = $subSelect;
+                            } else {
+                                $selectFields[$field] = true;
+                            }
+                        }
+                    }
+                }
+
+                $includeFields = [];
+                if (isset($value['include']) && is_array($value['include'])) {
+                    foreach ($value['include'] as $field => $subInclude) {
+                        if (is_array($subInclude)) {
+                            $includeFields[$field] = $subInclude;
+                        } elseif ((bool) $subInclude === true) {
+                            if (is_numeric($field)) {
+                                $includeFields[$field] = $subInclude;
+                            } else {
+                                $includeFields[$field] = true;
+                            }
+                        }
+                    }
+                }
+
+                $omitFields = [];
+                if (isset($value['omit']) && is_array($value['omit'])) {
+                    foreach ($value['omit'] as $field => $shouldOmit) {
+                        if ((bool) $shouldOmit === true) {
+                            $omitFields[$field] = true;
+                        }
+                    }
+                }
+
+                $queryOptions = ['where' => $whereConditions];
+                if (!empty($selectFields)) {
+                    $queryOptions['select'] = $selectFields;
+                }
+
+                if (!empty($includeFields)) {
+                    $queryOptions['include'] = $includeFields;
+                }
+
+                if (!empty($omitFields)) {
+                    $queryOptions['omit'] = $omitFields;
+                }
+
+                if ($relatedField['isList'] && $relatedInstanceField['isList']) {
+                    if ($relatedField['type'] === $relatedInstanceField['type']) {
+                        if (isset($queryOptions['where']) && empty($queryOptions['where'])) {
+                            unset($queryOptions['where']);
+                        }
+
+                        if (empty($queryOptions)) {
+                            $relatedFieldResult = $relatedInstance->findMany();
+                        } else {
+                            $relatedFieldResult = $relatedInstance->findMany($queryOptions);
+                        }
+                    } else {
+                        $implicitModelInfo = PPHPUtility::compareStringsAlphabetically($relatedField['type'], $relatedInstanceField['type']);
+                        $searchColumn = ($relatedField['type'] === $implicitModelInfo['A']) ? 'B' : 'A';
+                        $returnColumn = ($searchColumn === 'A') ? 'B' : 'A';
+
+                        $idField = null;
+                        foreach ($relatedField['relationFromFields'] as $index => $fromField) {
+                            if (isset($singleRecord[$fromField])) {
+                                $idField = $fromField;
+                                break;
+                            }
+                        }
+
+                        if (!$idField) {
+                            foreach ($relatedInstance->_fields as $field) {
+                                if ($field['isId']) {
+                                    $idField = $field['name'];
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!$idField || !isset($singleRecord[$idField])) {
+                            throw new Exception("No valid ID field found for relation lookup.");
+                        }
+
+                        $idValue = $singleRecord[$idField];
+
+                        $sql = "SELECT " . $returnColumn . " FROM " . $implicitModelInfo['Name'] . " WHERE " . $searchColumn . " = :id";
+                        $stmt = $pdo->prepare($sql);
+                        $stmt->execute(['id' => $idValue]);
+                        $implicitRecords = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+                        if (!empty($implicitRecords)) {
+                            $queryOptions['where'] = array_merge($queryOptions['where'] ?? [], [
+                                'id' => [
+                                    'in' => $implicitRecords
+                                ]
+                            ]);
+                            $queryOptions = array_filter($queryOptions, fn($value) => !empty($value));
+                            $relatedFieldResult = $relatedInstance->findMany($queryOptions);
+                        } else {
+                            $relatedFieldResult = [];
+                        }
+                    }
+                } else {
+                    if ($relatedField['isList']) {
+                        $relatedFieldResult = $relatedInstance->findMany($queryOptions);
+                    } else {
+                        $relatedFieldResult = $relatedInstance->findUnique($queryOptions);
+                    }
+                }
+
+                $singleRecord[$key] = $relatedFieldResult;
+            }
+
+            $records[$recordIndex] = $singleRecord;
         }
+
+        if ($isSingle) {
+            return $records[0];
+        }
+
+        return $records;
     }
 }
