@@ -843,7 +843,11 @@ final class PPHPUtility
                     }
 
                     if (empty($relatedInstanceField['relationFromFields']) && empty($relatedInstanceField['relationToFields'])) {
-                        $whereConditions[$toField] = $singleRecord[$toField];
+                        if ($relatedInstanceField['relationName'] === $relatedField['relationName'] && array_key_exists($fromField, $singleRecord)) {
+                            $whereConditions[$toField] = $singleRecord[$fromField];
+                        } else {
+                            $whereConditions[$toField] = $singleRecord[$toField];
+                        }
                     } elseif ($relatedInstanceField['isList']) {
                         $whereConditions[$toField] = $singleRecord[$fromField];
                     } else {
