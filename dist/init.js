@@ -66,7 +66,7 @@ function installPackages(isPrismaPHP) {
     "@prisma/internals@^6.4.1",
   ];
   if (!isPrismaPHP) {
-    packages.push("tsx@^4.19.3", "typescript@^5.8.2", "@types/node@^22.13.8");
+    packages.push("tsx@^4.19.3", "typescript@^5.8.2", "@types/node@^22.13.10");
   }
   const packagesStr = packages.join(" ");
   try {
