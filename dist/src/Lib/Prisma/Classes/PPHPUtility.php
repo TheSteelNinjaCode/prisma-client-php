@@ -730,6 +730,7 @@ final class PPHPUtility
 
         $reflection = new ReflectionClass($relatedClassName);
         $relatedClass = $reflection->newInstance($pdo);
+        $relatedResult = null;
 
         if (isset($fieldData['create'])) {
             $relatedData = ['data' => $fieldData['create']];
@@ -743,6 +744,38 @@ final class PPHPUtility
 
             if (!$relatedResult) {
                 $relatedData = ['data' => $fieldData['connectOrCreate']['create']];
+                $relatedResult = $relatedClass->create($relatedData);
+            }
+        } elseif (isset($fieldData['delete'])) {
+            $relatedData = ['where' => $fieldData['delete']];
+            $relatedClass->delete($relatedData);
+            return [];
+        } elseif (isset($fieldData['disconnect'])) {
+            $relatedData = [
+                'where' => $fieldData['disconnect'],
+                'data' => [
+                    $relationFromFields[0] => null
+                ]
+            ];
+            $relatedResult = $relatedClass->update($relatedData);
+        } elseif (isset($fieldData['update'])) {
+            $relatedData = [
+                'where' => $fieldData['update']['where'],
+                'data' => $fieldData['update']['data']
+            ];
+            $relatedResult = $relatedClass->update($relatedData);
+        } elseif (isset($fieldData['upsert'])) {
+            $relatedData = ['where' => $fieldData['upsert']['where']];
+            $relatedResult = $relatedClass->findUnique($relatedData);
+
+            if ($relatedResult) {
+                $relatedData = [
+                    'where' => $fieldData['upsert']['where'],
+                    'data' => $fieldData['upsert']['update']
+                ];
+                $relatedResult = $relatedClass->update($relatedData);
+            } else {
+                $relatedData = ['data' => $fieldData['upsert']['create']];
                 $relatedResult = $relatedClass->create($relatedData);
             }
         } else {
