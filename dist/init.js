@@ -61,9 +61,9 @@ const directoriesToCopy = [
  */
 function installPackages(isPrismaPHP) {
   const packages = [
-    "prisma@^6.4.1",
-    "@prisma/client@^6.4.1",
-    "@prisma/internals@^6.4.1",
+    "prisma@^6.5.0",
+    "@prisma/client@^6.5.0",
+    "@prisma/internals@^6.5.0",
   ];
   if (!isPrismaPHP) {
     packages.push("tsx@^4.19.3", "typescript@^5.8.2", "@types/node@^22.13.10");
@@ -165,7 +165,7 @@ async function main() {
       "ezyang/htmlpurifier:^4.18.0",
       "calicastle/cuid:^2.0.0",
       "symfony/uid:^7.2.0",
-      "brick/math:^0.12.1",
+      "brick/math:^0.13.0",
     ]);
   }
   installPackages(isPrismaPHP);
