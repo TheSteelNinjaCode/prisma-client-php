@@ -335,7 +335,7 @@ final class PPHPUtility
                         } elseif ($val === '') {
                             $sqlConditions[] = "$qualifiedField != ''";
                         } else {
-                            $validatedValue = Validator::string($val);
+                            $validatedValue = Validator::string($val, false);
                             $likeOperator = $condition === 'contains' ? ($dbType == 'pgsql' ? 'ILIKE' : 'LIKE') : '=';
                             if ($condition === 'startsWith') $validatedValue .= '%';
                             if ($condition === 'endsWith') $validatedValue = '%' . $validatedValue;
@@ -355,7 +355,7 @@ final class PPHPUtility
                         } elseif (strtotime($val) !== false) {
                             $validatedValue = date('Y-m-d H:i:s', strtotime($val));
                         } else {
-                            $validatedValue = Validator::string($val);
+                            $validatedValue = Validator::string($val, false);
                         }
                         $operator = $condition === 'gt' ? '>' : ($condition === 'gte' ? '>=' : ($condition === 'lt' ? '<' : '<='));
                         $sqlConditions[] = "$qualifiedField $operator $bindingKey";
@@ -366,7 +366,7 @@ final class PPHPUtility
                         $inPlaceholders = [];
                         foreach ($val as $i => $inVal) {
                             $inKey = $bindingKey . "_" . $i;
-                            $validatedValue = Validator::string($inVal);
+                            $validatedValue = Validator::string($inVal, false);
                             $inPlaceholders[] = $inKey;
                             $bindings[$inKey] = $validatedValue;
                         }
@@ -386,7 +386,7 @@ final class PPHPUtility
                 $sqlConditions[] = "$qualifiedField = ''";
             } else {
                 $bindingKey = ":" . $prefix . $key . $level;
-                $validatedValue = Validator::string($value);
+                $validatedValue = Validator::string($value, false);
                 $sqlConditions[] = "$qualifiedField = $bindingKey";
                 $bindings[$bindingKey] = $validatedValue;
             }
