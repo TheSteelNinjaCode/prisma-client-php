@@ -236,15 +236,17 @@ final class PPHPUtility
                     throw new Exception("The '$value' is indexed, waiting example: ['$value' => true]");
                 }
 
-                if (isset($value) && empty($value) || !is_bool($value)) {
-                    continue;
+                if (is_array($value) && isset($value['include'])) {
+                    $includes[$key] = $value;
+                } elseif (is_bool($value)) {
+                    $includes[$key] = $value;
+                } elseif (!is_array($value)) {
+                    throw new Exception("Invalid include format for '$key'. Expecting an array or boolean.");
                 }
 
                 if (!array_key_exists($key, $fields)) {
                     throw new Exception("The field '$key' does not exist in the $modelName model.");
                 }
-
-                $includes[$key] = $value;
             }
         }
     }
@@ -871,7 +873,7 @@ final class PPHPUtility
                 foreach ($relatedFieldKeys['relationFromFields'] as $index => $fromField) {
                     $toField = $relatedFieldKeys['relationToFields'][$index];
 
-                    if (!array_key_exists($toField, $singleRecord)) {
+                    if (!array_key_exists($toField, $singleRecord) && !array_key_exists($fromField, $singleRecord)) {
                         continue 2;
                     }
 
@@ -951,7 +953,29 @@ final class PPHPUtility
                         }
 
                         if (empty($queryOptions)) {
-                            $relatedFieldResult = $relatedInstance->findMany();
+                            $relatedFieldByRelationName = array_filter(
+                                $fields,
+                                fn($field) => isset($field['relationName'])
+                                    && $field['relationName'] === $relatedInstanceField['relationName']
+                                    && isset($relatedInstanceField['name'])
+                                    && $relatedInstanceField['name'] !== $field['name']
+                            );
+
+                            $whereConditions = [];
+                            if (!empty($relatedFieldByRelationName)) {
+                                $firstRelatedField = reset($relatedFieldByRelationName);
+                                if (!empty($firstRelatedField['relationFromFields']) && isset($firstRelatedField['relationFromFields'][0])) {
+                                    $whereConditions[$firstRelatedField['relationFromFields'][0]] = $singleRecord[$firstRelatedField['relationToFields'][0]];
+                                }
+                            }
+
+                            if (!empty($whereConditions)) {
+                                $relatedFieldResult = $relatedInstance->findMany(
+                                    ['where' => $whereConditions]
+                                );
+                            } else {
+                                $relatedFieldResult = $relatedInstance->findMany();
+                            }
                         } else {
                             $relatedFieldResult = $relatedInstance->findMany($queryOptions);
                         }

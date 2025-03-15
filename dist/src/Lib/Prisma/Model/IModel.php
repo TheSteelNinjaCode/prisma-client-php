@@ -20,5 +20,5 @@ interface IModel
     // public function updateManyAndReturn(array $data);
     // public function update(array $data);
     // public function upsert(array $data);
-    // public function count(array $criteria);
+    public function count(array $criteria);
 }
