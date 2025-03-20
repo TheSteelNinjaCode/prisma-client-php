@@ -718,14 +718,18 @@ final class PPHPUtility
     }
 
     public static function processRelation(
-        string $fieldName,
+        array $relatedField,
         array $fieldData,
         array $relationFromFields,
         array $relationToFields,
         string $relatedClassName,
+        string $model,
         PDO $pdo,
+        string $dbType,
+        string $lastInsertId = '',
         bool $requestOption = true,
     ): array {
+        $fieldName = $relatedField['name'];
         if (count($relationFromFields) !== count($relationToFields)) {
             throw new Exception("Mismatch between 'relationFromFields' and 'relationToFields' for relation '$fieldName'.");
         }
@@ -738,8 +742,38 @@ final class PPHPUtility
             $relatedData = ['data' => $fieldData['create']];
             $relatedResult = $relatedClass->create($relatedData);
         } elseif (isset($fieldData['connect'])) {
-            $relatedData = ['where' => $fieldData['connect']];
-            $relatedResult = $relatedClass->findUnique($relatedData);
+            if (empty($relationToFields) && empty($relationFromFields) && !empty($lastInsertId)) {
+                $relatedDataArray = $fieldData['connect'];
+                $relatedId = is_array($relatedDataArray) ? reset($relatedDataArray) : $relatedDataArray;
+                $implicitModelInfo = PPHPUtility::compareStringsAlphabetically($relatedField['type'], $model);
+                $searchColumn = ($relatedField['type'] === $implicitModelInfo['A']) ? 'B' : 'A';
+                $returnColumn = ($searchColumn === 'A') ? 'B' : 'A';
+
+                $searchColumnValue = '';
+                $returnColumnValue = '';
+                if ($implicitModelInfo['A'] === $model) {
+                    $searchColumnValue = $lastInsertId;
+                    $returnColumnValue = $relatedId;
+                } else {
+                    $searchColumnValue = $relatedId;
+                    $returnColumnValue = $lastInsertId;
+                }
+
+                $tableName = self::quoteColumnName($dbType, $implicitModelInfo['Name']);
+                $searchColumn = self::quoteColumnName($dbType, $searchColumn);
+                $returnColumn = self::quoteColumnName($dbType, $returnColumn);
+                $sql = "INSERT IGNORE INTO $tableName ($searchColumn, $returnColumn) VALUES (?,?)";
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute([$searchColumnValue, $returnColumnValue]);
+
+                $sqlSelect = "SELECT * FROM $tableName WHERE $searchColumn = ? AND $returnColumn = ?";
+                $stmtSelect = $pdo->prepare($sqlSelect);
+                $stmtSelect->execute([$searchColumnValue, $returnColumnValue]);
+                $relatedResult = $stmtSelect->fetch();
+            } else {
+                $relatedData = ['where' => $fieldData['connect']];
+                $relatedResult = $relatedClass->findUnique($relatedData);
+            }
         } elseif (isset($fieldData['connectOrCreate'])) {
             $relatedData = ['where' => $fieldData['connectOrCreate']['where']];
             $relatedResult = $relatedClass->findUnique($relatedData);
@@ -844,7 +878,8 @@ final class PPHPUtility
         array $includes,
         array $fields,
         array $fieldsRelatedWithKeys,
-        PDO $pdo
+        PDO $pdo,
+        string $dbType,
     ): array {
         $isSingle = !isset($records[0]) || !is_array($records[0]);
         if ($isSingle) {
@@ -1007,7 +1042,10 @@ final class PPHPUtility
 
                         $idValue = $singleRecord[$idField];
 
-                        $sql = "SELECT " . $returnColumn . " FROM " . $implicitModelInfo['Name'] . " WHERE " . $searchColumn . " = :id";
+                        $tableName = PPHPUtility::quoteColumnName($dbType, $implicitModelInfo['Name']);
+                        $searchColumn = PPHPUtility::quoteColumnName($dbType, $searchColumn);
+                        $returnColumn = PPHPUtility::quoteColumnName($dbType, $returnColumn);
+                        $sql = "SELECT " . $returnColumn . " FROM " . $tableName . " WHERE " . $searchColumn . " = :id";
                         $stmt = $pdo->prepare($sql);
                         $stmt->execute(['id' => $idValue]);
                         $implicitRecords = $stmt->fetchAll(PDO::FETCH_COLUMN);
