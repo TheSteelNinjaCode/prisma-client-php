@@ -241,7 +241,7 @@ final class PPHPUtility
                     throw new Exception("The '$value' is indexed, waiting example: ['$value' => true]");
                 }
 
-                if (is_array($value) && isset($value['include'])) {
+                if (is_array($value) && array_key_exists($key, $fields)) {
                     $includes[$key] = $value;
                 } elseif (is_bool($value)) {
                     $includes[$key] = $value;
