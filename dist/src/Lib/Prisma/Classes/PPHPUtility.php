@@ -230,6 +230,11 @@ final class PPHPUtility
                     continue;
                 }
 
+                if ($key === '_count' && is_array($value) && array_key_exists('select', $value)) {
+                    $includes[$key] = $value;
+                    continue;
+                }
+
                 self::processIncludeValue($key, $value, $relatedEntityFields, $fields, $modelName, $key);
 
                 if (is_numeric($key) && is_string($value)) {
