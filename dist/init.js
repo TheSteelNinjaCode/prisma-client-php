@@ -3,6 +3,13 @@ import path from "path";
 import { execSync } from "child_process";
 import { getFileMeta } from "./utils.js";
 const { __dirname } = getFileMeta();
+let projectSettings = null;
+function checkExcludeFiles(destPath) {
+  return (
+    projectSettings?.excludeFilePath?.includes(destPath.replace(/\\/g, "/")) ??
+    false
+  );
+}
 /**
  * Recursively copies all files and folders from `src` to `dest`,
  * overwriting existing files if they already exist.
@@ -24,6 +31,7 @@ function copyRecursiveSync(src, dest, base = src, isPrismaPHP = false) {
     const destPath = path.join(dest, entry.name);
     const relative = path.relative(base, srcPath);
     const display = path.join(path.basename(base), relative);
+    if (checkExcludeFiles(destPath)) return;
     // **Normalize Path to Avoid Issues on Windows**
     const relativePath = path.relative(__dirname, srcPath);
     const validatorFile = path.normalize("src/Lib/Validator.php");
@@ -149,6 +157,10 @@ function runComposerInstall(packages) {
     console.error("Error installing Composer packages:", error);
   }
 }
+const readJsonFile = (filePath) => {
+  const jsonData = fs.readFileSync(filePath, "utf8");
+  return JSON.parse(jsonData);
+};
 /**
  * Main execution flow.
  *
@@ -158,8 +170,24 @@ function runComposerInstall(packages) {
  */
 async function main() {
   const isPrismaPHP = process.argv.includes("--prisma-php");
+  const currentDir = process.cwd();
+  const configPath = path.join(currentDir, "prisma-php.json");
   if (isPrismaPHP) {
-    await updateComposerJson(process.cwd());
+    if (fs.existsSync(configPath)) {
+      const localSettings = readJsonFile(configPath);
+      let excludeFiles = [];
+      localSettings.excludeFiles?.map((file) => {
+        const filePath = path.join(currentDir, file);
+        if (fs.existsSync(filePath))
+          excludeFiles.push(filePath.replace(/\\/g, "/"));
+      });
+      projectSettings = {
+        ...localSettings,
+        excludeFiles: localSettings.excludeFiles ?? [],
+        excludeFilePath: excludeFiles ?? [],
+      };
+    }
+    await updateComposerJson(currentDir);
   } else {
     runComposerInstall([
       "ezyang/htmlpurifier:^4.18.0",
