@@ -323,8 +323,35 @@ final class PPHPUtility
         }
     }
 
+    private static function isOperatorArray(array $arr)
+    {
+        $operators = ['contains', 'startsWith', 'endsWith', 'equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn'];
+        foreach ($arr as $key => $value) {
+            if (!in_array($key, $operators)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static function processSingleCondition($key, $value, &$sqlConditions, &$bindings, $dbType, $tableName, $prefix, $level)
     {
+        if (is_array($value) && !self::isOperatorArray($value)) {
+            foreach ($value as $nestedKey => $nestedValue) {
+                self::processSingleCondition(
+                    $nestedKey,
+                    $nestedValue,
+                    $sqlConditions,
+                    $bindings,
+                    $dbType,
+                    $key,
+                    $prefix . $key . '_',
+                    $level + 1
+                );
+            }
+            return;
+        }
+
         $fieldQuoted = self::quoteColumnName($dbType, $key);
         $qualifiedField = $tableName . '.' . $fieldQuoted;
 
