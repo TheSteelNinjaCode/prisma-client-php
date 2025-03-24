@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 import { getFileMeta } from "./utils.js";
+import chalk from "chalk";
 const { __dirname } = getFileMeta();
 let projectSettings = null;
 function checkExcludeFiles(destPath) {
@@ -64,29 +65,44 @@ const directoriesToCopy = [
     destFolder: path.join(process.cwd(), "prisma"),
   },
 ];
-/**
- * Installs specified packages using npm in the current working directory.
- */
-function installPackages(isPrismaPHP) {
-  const packages = [
-    "prisma@^6.5.0",
-    "@prisma/client@^6.5.0",
-    "@prisma/internals@^6.5.0",
+function installNpmDependencies(isPrismaPHP) {
+  const currentDir = process.cwd();
+  const packageJsonPath = path.join(currentDir, "package.json");
+  let packageJson;
+  if (fs.existsSync(packageJsonPath)) {
+    const packageJsonContent = fs.readFileSync(packageJsonPath, "utf8");
+    packageJson = JSON.parse(packageJsonContent);
+    packageJson.prisma = {
+      seed: "tsx prisma/seed.ts",
+    };
+  } else {
+    console.error("package.json does not exist.");
+    return;
+  }
+  let npmDependencies = [
+    npmPkg("prisma"),
+    npmPkg("@prisma/client"),
+    npmPkg("@prisma/internals"),
   ];
   if (!isPrismaPHP) {
-    packages.push("tsx@^4.19.3", "typescript@^5.8.2", "@types/node@^22.13.10");
+    npmDependencies.push(
+      npmPkg("tsx"),
+      npmPkg("typescript"),
+      npmPkg("@types/node")
+    );
+    packageJson.type = "module";
   }
-  const packagesStr = packages.join(" ");
+  const packagesStr = npmDependencies.join(" ");
   try {
     console.log(`Installing packages: ${packagesStr}`);
     execSync(`npm install --save-dev ${packagesStr}`, {
       stdio: "inherit",
-      cwd: process.cwd(),
+      cwd: currentDir,
     });
     if (!isPrismaPHP) {
       execSync("npx tsc --init", {
         stdio: "inherit",
-        cwd: process.cwd(),
+        cwd: currentDir,
       });
     }
     console.log("Packages installed successfully.");
@@ -99,7 +115,8 @@ function installPackages(isPrismaPHP) {
  * If the prisma folder already exists, the command is skipped.
  */
 function initPrisma() {
-  const prismaFolderPath = path.join(process.cwd(), "prisma");
+  const currentDir = process.cwd();
+  const prismaFolderPath = path.join(currentDir, "prisma");
   if (fs.existsSync(prismaFolderPath)) {
     console.warn("Prisma folder already exists. Skipping prisma init.");
     return;
@@ -108,18 +125,16 @@ function initPrisma() {
     console.log("Initializing Prisma...");
     execSync(`npx prisma init`, {
       stdio: "inherit",
-      cwd: process.cwd(),
+      cwd: currentDir,
     });
     console.log("Prisma initialized successfully.");
   } catch (error) {
     console.error("Error initializing Prisma:", error);
   }
 }
-/**
- * Updates the composer.json file by adding "calicastle/cuid": "^2.0.0" to its require section.
- */
-async function updateComposerJson(baseDir) {
-  const composerJsonPath = path.join(baseDir, "composer.json");
+async function installComposerDependencies(isPrismaPHP) {
+  const currentDir = process.cwd();
+  const composerJsonPath = path.join(currentDir, "composer.json");
   let composerJson;
   if (fs.existsSync(composerJsonPath)) {
     const composerJsonContent = fs.readFileSync(composerJsonPath, "utf8");
@@ -128,51 +143,9 @@ async function updateComposerJson(baseDir) {
     console.error("composer.json does not exist.");
     return;
   }
-  composerJson.require = {
-    ...composerJson.require,
-    "calicastle/cuid": "^2.0.0",
-  };
-  fs.writeFileSync(composerJsonPath, JSON.stringify(composerJson, null, 2));
-  console.log("composer.json updated successfully.");
-}
-/**
- * Installs the specified Composer packages using the require command.
- */
-function runComposerInstall(packages) {
-  if (packages.length === 0) {
-    console.warn("No Composer packages specified for installation.");
-    return;
-  }
-  const packageList = packages.join(" ");
-  try {
-    console.log(`Installing Composer packages: ${packageList}...`);
-    execSync(
-      `C:\\xampp\\php\\php.exe C:\\ProgramData\\ComposerSetup\\bin\\composer.phar require ${packageList}`,
-      {
-        stdio: "inherit",
-      }
-    );
-    console.log("Composer packages installed successfully.");
-  } catch (error) {
-    console.error("Error installing Composer packages:", error);
-  }
-}
-const readJsonFile = (filePath) => {
-  const jsonData = fs.readFileSync(filePath, "utf8");
-  return JSON.parse(jsonData);
-};
-/**
- * Main execution flow.
- *
- * If the flag "--prisma-php" is passed, it will update composer.json.
- * Otherwise, it will run Composer install to install the package.
- * Then, it proceeds with npm package installation, Prisma initialization, and file copying.
- */
-async function main() {
-  const isPrismaPHP = process.argv.includes("--prisma-php");
-  const currentDir = process.cwd();
-  const configPath = path.join(currentDir, "prisma-php.json");
+  let composerDependencies = [];
   if (isPrismaPHP) {
+    const configPath = path.join(currentDir, "prisma-php.json");
     if (fs.existsSync(configPath)) {
       const localSettings = readJsonFile(configPath);
       let excludeFiles = [];
@@ -186,17 +159,63 @@ async function main() {
         excludeFiles: localSettings.excludeFiles ?? [],
         excludeFilePath: excludeFiles ?? [],
       };
+      composerDependencies.push(composerPkg("calicastle/cuid"));
     }
-    await updateComposerJson(currentDir);
   } else {
-    runComposerInstall([
-      "ezyang/htmlpurifier:^4.18.0",
-      "calicastle/cuid:^2.0.0",
-      "symfony/uid:^7.2.0",
-      "brick/math:^0.13.0",
-    ]);
+    composerDependencies.push(
+      composerPkg("ezyang/htmlpurifier"),
+      composerPkg("calicastle/cuid"),
+      composerPkg("symfony/uid"),
+      composerPkg("brick/math")
+    );
   }
-  installPackages(isPrismaPHP);
+  try {
+    // Log the dependencies being installed
+    console.log("Installing Composer dependencies:");
+    composerDependencies.forEach((dep) => console.log(`- ${chalk.blue(dep)}`));
+    // Prepare the composer require command
+    const composerRequireCommand = `C:\\xampp\\php\\php.exe C:\\ProgramData\\ComposerSetup\\bin\\composer.phar require ${composerDependencies.join(
+      " "
+    )}`;
+    // Execute the composer require command
+    execSync(composerRequireCommand, {
+      stdio: "inherit",
+      cwd: currentDir,
+    });
+  } catch (error) {
+    console.error("Error installing Composer dependencies:", error);
+  }
+  fs.writeFileSync(composerJsonPath, JSON.stringify(composerJson, null, 2));
+  console.log("composer.json updated successfully.");
+}
+const readJsonFile = (filePath) => {
+  const jsonData = fs.readFileSync(filePath, "utf8");
+  return JSON.parse(jsonData);
+};
+const npmPinnedVersions = {
+  prisma: "^6.5.0",
+  "@prisma/client": "^6.5.0",
+  "@prisma/internals": "^6.5.0",
+  tsx: "^4.19.3",
+  typescript: "^5.8.2",
+  "@types/node": "^22.13.11",
+};
+function npmPkg(name) {
+  return npmPinnedVersions[name] ? `${name}@${npmPinnedVersions[name]}` : name;
+}
+const composerPinnedVersions = {
+  "ezyang/htmlpurifier": "^4.18.0",
+  "calicastle/cuid": "^2.0.0",
+  "symfony/uid": "^7.2.0",
+  "brick/math": "^0.13.0",
+};
+function composerPkg(name) {
+  return composerPinnedVersions[name] ?? name;
+}
+async function main() {
+  const isPrismaPHP = process.argv.includes("--prisma-php");
+  installNpmDependencies(isPrismaPHP);
+  installComposerDependencies(isPrismaPHP);
   initPrisma();
   directoriesToCopy.forEach((config) => {
     copyRecursiveSync(
