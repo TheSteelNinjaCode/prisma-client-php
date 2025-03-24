@@ -135,11 +135,7 @@ function initPrisma() {
 async function installComposerDependencies(isPrismaPHP) {
   const currentDir = process.cwd();
   const composerJsonPath = path.join(currentDir, "composer.json");
-  let composerJson;
-  if (fs.existsSync(composerJsonPath)) {
-    const composerJsonContent = fs.readFileSync(composerJsonPath, "utf8");
-    composerJson = JSON.parse(composerJsonContent);
-  } else {
+  if (!fs.existsSync(composerJsonPath)) {
     console.error("composer.json does not exist.");
     return;
   }
@@ -183,8 +179,6 @@ async function installComposerDependencies(isPrismaPHP) {
   } catch (error) {
     console.error("Error installing Composer dependencies:", error);
   }
-  fs.writeFileSync(composerJsonPath, JSON.stringify(composerJson, null, 2));
-  console.log("composer.json updated successfully.");
 }
 const readJsonFile = (filePath) => {
   const jsonData = fs.readFileSync(filePath, "utf8");
