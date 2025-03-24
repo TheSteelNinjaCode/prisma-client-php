@@ -143,7 +143,7 @@ async function installComposerDependencies(isPrismaPHP) {
     console.error("composer.json does not exist.");
     return;
   }
-  let composerDependencies = [];
+  let composerDependencies = [composerPkg("calicastle/cuid")];
   if (isPrismaPHP) {
     const configPath = path.join(currentDir, "prisma-php.json");
     if (fs.existsSync(configPath)) {
@@ -159,12 +159,10 @@ async function installComposerDependencies(isPrismaPHP) {
         excludeFiles: localSettings.excludeFiles ?? [],
         excludeFilePath: excludeFiles ?? [],
       };
-      composerDependencies.push(composerPkg("calicastle/cuid"));
     }
   } else {
     composerDependencies.push(
       composerPkg("ezyang/htmlpurifier"),
-      composerPkg("calicastle/cuid"),
       composerPkg("symfony/uid"),
       composerPkg("brick/math")
     );
@@ -210,7 +208,9 @@ const composerPinnedVersions = {
   "brick/math": "^0.13.0",
 };
 function composerPkg(name) {
-  return composerPinnedVersions[name] ?? name;
+  return composerPinnedVersions[name]
+    ? `${name}:${composerPinnedVersions[name]}`
+    : name;
 }
 async function main() {
   const isPrismaPHP = process.argv.includes("--prisma-php");
