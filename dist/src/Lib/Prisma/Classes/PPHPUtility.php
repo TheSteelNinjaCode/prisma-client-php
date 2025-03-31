@@ -749,105 +749,273 @@ final class PPHPUtility
         }
     }
 
-    public static function processRelation(
-        array $relatedField,
-        array $fieldData,
-        array $relationFromFields,
-        array $relationToFields,
-        string $relatedClassName,
+    private static function handleImplicitRelationSelect(
         string $model,
-        PDO $pdo,
+        string $relatedModel,
         string $dbType,
-        string $lastInsertId = '',
-        bool $requestOption = true,
+        PDO $pdo,
+        mixed $primaryId
     ): array {
-        $fieldName = $relatedField['name'];
-        if (count($relationFromFields) !== count($relationToFields)) {
-            throw new Exception("Mismatch between 'relationFromFields' and 'relationToFields' for relation '$fieldName'.");
+        $implicitModelInfo = PPHPUtility::compareStringsAlphabetically($relatedModel, $model);
+        $searchColumn = ($relatedModel === $implicitModelInfo['A']) ? 'B' : 'A';
+        $tableName = self::quoteColumnName($dbType, $implicitModelInfo['Name']);
+        $searchColumnQuoted = self::quoteColumnName($dbType, $searchColumn);
+
+        $sqlSelect = "SELECT * FROM $tableName WHERE $searchColumnQuoted = ?";
+        $stmtSelect = $pdo->prepare($sqlSelect);
+        $stmtSelect->execute([$primaryId]);
+        return $stmtSelect->fetchAll();
+    }
+
+    private static function handleImplicitRelationInsert(
+        string $model,
+        string $relatedModel,
+        string $dbType,
+        PDO $pdo,
+        mixed $primaryId,
+        mixed $relatedId
+    ): array {
+        $implicitModelInfo = PPHPUtility::compareStringsAlphabetically($relatedModel, $model);
+        $searchColumn = ($relatedModel === $implicitModelInfo['A']) ? 'B' : 'A';
+        $returnColumn = ($searchColumn === 'A') ? 'B' : 'A';
+
+        if ($implicitModelInfo['A'] === $model) {
+            $searchColumnValue = $primaryId;
+            $returnColumnValue = $relatedId;
+        } else {
+            $searchColumnValue = $relatedId;
+            $returnColumnValue = $primaryId;
         }
 
-        $reflection = new ReflectionClass($relatedClassName);
-        $relatedClass = $reflection->newInstance($pdo);
-        $relatedResult = null;
+        $tableName = self::quoteColumnName($dbType, $implicitModelInfo['Name']);
+        $searchColumnQuoted = self::quoteColumnName($dbType, $searchColumn);
+        $returnColumnQuoted = self::quoteColumnName($dbType, $returnColumn);
 
-        if (isset($fieldData['create'])) {
-            $relatedData = ['data' => $fieldData['create']];
-            $relatedResult = $relatedClass->create($relatedData);
-        } elseif (isset($fieldData['connect'])) {
-            if (empty($relationToFields) && empty($relationFromFields) && !empty($lastInsertId)) {
-                $relatedDataArray = $fieldData['connect'];
-                $relatedId = is_array($relatedDataArray) ? reset($relatedDataArray) : $relatedDataArray;
-                $implicitModelInfo = PPHPUtility::compareStringsAlphabetically($relatedField['type'], $model);
-                $searchColumn = ($relatedField['type'] === $implicitModelInfo['A']) ? 'B' : 'A';
-                $returnColumn = ($searchColumn === 'A') ? 'B' : 'A';
+        $sql = "INSERT IGNORE INTO $tableName ($searchColumnQuoted, $returnColumnQuoted) VALUES (?, ?)";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$searchColumnValue, $returnColumnValue]);
 
-                $searchColumnValue = '';
-                $returnColumnValue = '';
-                if ($implicitModelInfo['A'] === $model) {
-                    $searchColumnValue = $lastInsertId;
-                    $returnColumnValue = $relatedId;
-                } else {
-                    $searchColumnValue = $relatedId;
-                    $returnColumnValue = $lastInsertId;
-                }
+        $sqlSelect = "SELECT * FROM $tableName WHERE $searchColumnQuoted = ? AND $returnColumnQuoted = ?";
+        $stmtSelect = $pdo->prepare($sqlSelect);
+        $stmtSelect->execute([$searchColumnValue, $returnColumnValue]);
 
-                $tableName = self::quoteColumnName($dbType, $implicitModelInfo['Name']);
-                $searchColumn = self::quoteColumnName($dbType, $searchColumn);
-                $returnColumn = self::quoteColumnName($dbType, $returnColumn);
-                $sql = "INSERT IGNORE INTO $tableName ($searchColumn, $returnColumn) VALUES (?,?)";
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute([$searchColumnValue, $returnColumnValue]);
+        $result = $stmtSelect->fetch();
+        return $result ?: [];
+    }
 
-                $sqlSelect = "SELECT * FROM $tableName WHERE $searchColumn = ? AND $returnColumn = ?";
-                $stmtSelect = $pdo->prepare($sqlSelect);
-                $stmtSelect->execute([$searchColumnValue, $returnColumnValue]);
-                $relatedResult = $stmtSelect->fetch();
-            } else {
-                $relatedData = ['where' => $fieldData['connect']];
-                $relatedResult = $relatedClass->findUnique($relatedData);
-            }
-        } elseif (isset($fieldData['connectOrCreate'])) {
-            $relatedData = ['where' => $fieldData['connectOrCreate']['where']];
-            $relatedResult = $relatedClass->findUnique($relatedData);
+    private static function handleImplicitRelationDelete(
+        string $model,
+        string $relatedModel,
+        string $dbType,
+        PDO $pdo,
+        mixed $primaryId,
+        array $allNewRelatedIds
+    ): void {
+        $implicitModelInfo = PPHPUtility::compareStringsAlphabetically($relatedModel, $model);
+        $searchColumn = ($relatedModel === $implicitModelInfo['A']) ? 'B' : 'A';
+        $returnColumn = ($searchColumn === 'A') ? 'B' : 'A';
 
-            if (!$relatedResult) {
-                $relatedData = ['data' => $fieldData['connectOrCreate']['create']];
-                $relatedResult = $relatedClass->create($relatedData);
-            }
-        } elseif (isset($fieldData['delete'])) {
-            $relatedData = ['where' => $fieldData['delete']];
-            $relatedClass->delete($relatedData);
-            return [];
-        } elseif (isset($fieldData['disconnect'])) {
-            $relatedData = [
-                'where' => $fieldData['disconnect'],
-                'data' => [
-                    $relationFromFields[0] => null
-                ]
-            ];
-            $relatedResult = $relatedClass->update($relatedData);
-        } elseif (isset($fieldData['update'])) {
-            $relatedData = [
-                'where' => $fieldData['update']['where'],
-                'data' => $fieldData['update']['data']
-            ];
-            $relatedResult = $relatedClass->update($relatedData);
-        } elseif (isset($fieldData['upsert'])) {
-            $relatedData = ['where' => $fieldData['upsert']['where']];
-            $relatedResult = $relatedClass->findUnique($relatedData);
+        $tableName = self::quoteColumnName($dbType, $implicitModelInfo['Name']);
+        $searchColumnQuoted = self::quoteColumnName($dbType, $searchColumn);
+        $returnColumnQuoted = self::quoteColumnName($dbType, $returnColumn);
 
-            if ($relatedResult) {
-                $relatedData = [
-                    'where' => $fieldData['upsert']['where'],
-                    'data' => $fieldData['upsert']['update']
-                ];
-                $relatedResult = $relatedClass->update($relatedData);
-            } else {
-                $relatedData = ['data' => $fieldData['upsert']['create']];
-                $relatedResult = $relatedClass->create($relatedData);
-            }
+        if (count($allNewRelatedIds) > 0) {
+            $placeholders = implode(',', array_fill(0, count($allNewRelatedIds), '?'));
+            $sqlDelete = "DELETE FROM $tableName WHERE $searchColumnQuoted = ? AND $returnColumnQuoted NOT IN ($placeholders)";
+            $stmtDelete = $pdo->prepare($sqlDelete);
+            $stmtDelete->execute(array_merge([$primaryId], $allNewRelatedIds));
         } else {
-            throw new Exception("No valid action provided for relation '$fieldName'.");
+            $sqlDelete = "DELETE FROM $tableName WHERE $searchColumnQuoted = ?";
+            $stmtDelete = $pdo->prepare($sqlDelete);
+            $stmtDelete->execute([$primaryId]);
+        }
+    }
+
+    public static function processRelation(
+        string $modelName,
+        string $relatedFieldName,
+        array $fieldData,
+        PDO $pdo,
+        string $dbType,
+        bool $requestOption = true,
+    ): array {
+
+        $modelClassName = "Lib\\Prisma\\Classes\\" . $modelName;
+        $modelReflection = new ReflectionClass($modelClassName);
+        $modelClass = $modelReflection->newInstance($pdo);
+        $modelFieldsRelatedWithKeys = $modelClass->_fieldsRelatedWithKeys[$relatedFieldName];
+        $modelRelatedFromFields = $modelFieldsRelatedWithKeys['relationFromFields'];
+        $modelRelatedToFields = $modelFieldsRelatedWithKeys['relationToFields'];
+        $modelRelatedField = $modelClass->_fields[$relatedFieldName];
+        $modelRelatedFieldIsList = $modelRelatedField['isList'] ?? false;
+        $modelRelatedFieldType = $modelRelatedField['type'];
+        $relatedClassName = "Lib\\Prisma\\Classes\\" . $modelRelatedFieldType;
+        $relatedReflection = new ReflectionClass($relatedClassName);
+        $relatedClass = $relatedReflection->newInstance($pdo);
+
+        $relatedResult = null;
+        foreach ($fieldData as $action => $actionData) {
+            $operations = isset($actionData[0]) ? $actionData : [$actionData];
+
+            foreach ($operations as $op) {
+                switch ($action) {
+                    case 'connect':
+                        if (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
+                            $relatedFieldData = $op[$modelRelatedFieldType];
+                            $modelFieldData = $op[$modelName];
+                            $relatedResult = self::handleImplicitRelationInsert(
+                                $modelName,
+                                $modelRelatedFieldType,
+                                $dbType,
+                                $pdo,
+                                $relatedFieldData[$relatedClass->_primaryKey],
+                                $modelFieldData[$modelClass->_primaryKey]
+                            );
+                        } else {
+                            if (!$modelRelatedFieldIsList && count($operations) > 1) {
+                                throw new Exception("Cannot connect multiple records for a non-list relation '$relatedFieldName'.");
+                            }
+
+                            $relatedResult = $relatedClass->findUnique(['where' => $op]);
+                        }
+                        break;
+                    case 'connectOrCreate':
+                        if (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
+                            $relatedFieldData = $op[$modelRelatedFieldType];
+                            $modelFieldData = $op[$modelName];
+                            $existingRecord = $relatedClass->findFirst(['where' => $relatedFieldData['where']]);
+
+                            if ($existingRecord) {
+                                $record = $existingRecord;
+                            } else {
+                                $record = $relatedClass->create(['data' => $relatedFieldData['create']]);
+                            }
+
+                            $relatedResult = self::handleImplicitRelationInsert(
+                                $modelName,
+                                $modelRelatedFieldType,
+                                $dbType,
+                                $pdo,
+                                $record->{$relatedClass->_primaryKey},
+                                $modelFieldData[$modelClass->_primaryKey]
+                            );
+                        } else {
+
+                            if (!$modelRelatedFieldIsList && count($operations) > 1) {
+                                throw new Exception("Cannot connectOrCreate multiple records for a non-list relation '$relatedFieldName'.");
+                            }
+
+                            $existing = $relatedClass->findUnique(['where' => $op]);
+
+                            if ($existing) {
+                                $relatedResult = $existing;
+                            } else {
+                                $relatedResult = $relatedClass->create(['data' => $op]);
+                            }
+                        }
+                        break;
+                    case 'create':
+                        if (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
+                            $relatedFieldData = $op[$modelRelatedFieldType];
+                            $modelFieldData = $op[$modelName];
+                            $relatedCreatedData = $relatedClass->create(['data' => $relatedFieldData]);
+                            $relatedResult = self::handleImplicitRelationInsert(
+                                $modelName,
+                                $modelRelatedFieldType,
+                                $dbType,
+                                $pdo,
+                                $relatedCreatedData->{$relatedClass->_primaryKey},
+                                $modelFieldData[$modelClass->_primaryKey]
+                            );
+                        } else {
+                            if (!$modelRelatedFieldIsList && count($operations) > 1) {
+                                throw new Exception("Cannot create multiple records for a non-list relation '$relatedFieldName'.");
+                            }
+
+                            $relatedResult = $relatedClass->create(['data' => $op]);
+                        }
+                        break;
+                    case 'delete':
+                        $whereCondition = $op[$modelRelatedFieldType];
+                        $relatedResult = $relatedClass->delete(['where' => $whereCondition]);
+                        break;
+                    case 'disconnect':
+                        if (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
+                            $relatedFieldData = $op[$modelRelatedFieldType];
+                            $modelFieldData = $op[$modelName];
+                            $relatedResult = self::handleImplicitRelationDelete(
+                                $modelName,
+                                $modelRelatedFieldType,
+                                $dbType,
+                                $pdo,
+                                $modelFieldData[$modelClass->_primaryKey],
+                                $relatedFieldData[$relatedClass->_primaryKey]
+                            );
+                        } else {
+                            $relatedResult = $relatedClass->delete(['where' => $op]);
+                        }
+                        break;
+                    case 'set':
+                        if (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
+                            $newRelatedIds = [];
+                            $primaryId = null;
+                            foreach ($operations as $opSet) {
+                                $relatedFieldData = $opSet[$modelRelatedFieldType];
+                                $modelFieldData   = $opSet[$modelName];
+                                $newRelatedIds[]  = $relatedFieldData[$relatedClass->_primaryKey];
+                                if (!$primaryId) {
+                                    $primaryId = $modelFieldData[$modelClass->_primaryKey];
+                                }
+                            }
+                            $newRelatedIds = array_unique($newRelatedIds);
+
+                            self::handleImplicitRelationDelete(
+                                $modelName,
+                                $modelRelatedFieldType,
+                                $dbType,
+                                $pdo,
+                                $primaryId,
+                                $newRelatedIds
+                            );
+
+                            foreach ($newRelatedIds as $relatedId) {
+                                self::handleImplicitRelationInsert(
+                                    $modelName,
+                                    $modelRelatedFieldType,
+                                    $dbType,
+                                    $pdo,
+                                    $relatedId,
+                                    $primaryId
+                                );
+                            }
+
+                            $relatedResult = self::handleImplicitRelationSelect(
+                                $modelName,
+                                $modelRelatedFieldType,
+                                $dbType,
+                                $pdo,
+                                $primaryId
+                            );
+                        } else {
+                            $relatedResult = $relatedClass->findUnique(['where' => $op]);
+                        }
+                        break;
+                    case 'update':
+                        $relatedFieldData = $op[$modelRelatedFieldType];
+                        $relatedResult = $relatedClass->update(['where' => $relatedFieldData['where'], 'data' => $relatedFieldData['data']]);
+                        break;
+                    case 'upsert':
+                        $relatedFieldData = $op[$modelRelatedFieldType];
+                        $existing = $relatedClass->findUnique(['where' => $relatedFieldData['where']]);
+
+                        if ($existing) {
+                            $relatedResult = $relatedClass->update(['where' => $relatedFieldData['where'], 'data' => $relatedFieldData['data']]);
+                        } else {
+                            $relatedResult = $relatedClass->create(['data' => $op]);
+                        }
+                        break;
+                }
+            }
         }
 
         $relatedResult = (array) $relatedResult;
@@ -857,52 +1025,20 @@ final class PPHPUtility
         }
 
         if (!$relatedResult) {
-            throw new Exception("Failed to process related record for '$fieldName'.");
+            throw new Exception("Failed to process related record for '$relatedFieldName'.");
         }
 
         $bindings = [];
-        foreach ($relationFromFields as $index => $fromField) {
-            $toField = $relationToFields[$index];
+        foreach ($modelRelatedFromFields as $index => $fromField) {
+            $toField = $modelRelatedToFields[$index];
             if (!isset($relatedResult[$toField])) {
-                throw new Exception("The field '$toField' is missing in the related data for '$fieldName'.");
+                throw new Exception("The field '$toField' is missing in the related data for '$relatedFieldName'.");
             }
 
             $bindings[$fromField] = $relatedResult[$toField];
         }
 
         return $bindings;
-    }
-
-    public static function mergeForeignKeysIfNeeded(
-        array $item,
-        string $action,
-        array $relationToFields,
-        array $relationFromFields,
-        $lastInsertId,
-        array $fields
-    ): array {
-        foreach ($relationToFields as $idx => $toField) {
-            if (!array_key_exists($toField, $fields)) {
-                continue;
-            }
-
-            $fromField = $relationFromFields[$idx] ?? null;
-            if (!$fromField) {
-                continue;
-            }
-
-            if ($action === 'create') {
-                $item[$fromField] = $lastInsertId;
-            } elseif ($action === 'connect') {
-                $item[$fromField] = $lastInsertId;
-            } elseif ($action === 'connectOrCreate') {
-                if (isset($item['where'])) {
-                    $item['where'][$fromField] = $lastInsertId;
-                }
-            }
-        }
-
-        return $item;
     }
 
     public static function populateIncludedRelations(
