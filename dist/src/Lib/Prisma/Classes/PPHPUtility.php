@@ -984,8 +984,8 @@ final class PPHPUtility
                                     $modelRelatedFieldType,
                                     $dbType,
                                     $pdo,
-                                    $relatedId,
-                                    $primaryId
+                                    $primaryId,
+                                    $relatedId
                                 );
                             }
 
