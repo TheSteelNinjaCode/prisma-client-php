@@ -4,7 +4,7 @@ namespace Lib\Prisma\Model;
 
 interface IModel
 {
-    // public function aggregate(array $operation);
+    public function aggregate(array $operation);
     // public function createMany(array $data);
     // public function createManyAndReturn(array $data);
     public function create(array $data);
