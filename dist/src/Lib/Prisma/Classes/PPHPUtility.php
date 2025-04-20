@@ -868,8 +868,8 @@ final class PPHPUtility
                                 $modelRelatedFieldType,
                                 $dbType,
                                 $pdo,
+                                $modelFieldData[$modelClass->_primaryKey],
                                 $relatedFieldData[$relatedClass->_primaryKey],
-                                $modelFieldData[$modelClass->_primaryKey]
                             );
                         } else {
                             if (!$modelRelatedFieldIsList && count($operations) > 1) {
@@ -896,8 +896,8 @@ final class PPHPUtility
                                 $modelRelatedFieldType,
                                 $dbType,
                                 $pdo,
+                                $modelFieldData[$modelClass->_primaryKey],
                                 $record->{$relatedClass->_primaryKey},
-                                $modelFieldData[$modelClass->_primaryKey]
                             );
                         } else {
 
@@ -924,8 +924,8 @@ final class PPHPUtility
                                 $modelRelatedFieldType,
                                 $dbType,
                                 $pdo,
+                                $modelFieldData[$modelClass->_primaryKey],
                                 $relatedCreatedData->{$relatedClass->_primaryKey},
-                                $modelFieldData[$modelClass->_primaryKey]
                             );
                         } else {
                             if (!$modelRelatedFieldIsList && count($operations) > 1) {
