@@ -75,6 +75,10 @@ function installNpmDependencies(isPrismaPHP) {
     packageJson.prisma = {
       seed: "tsx prisma/seed.ts",
     };
+    if (!isPrismaPHP) {
+      packageJson.type = "module";
+    }
+    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
   } else {
     console.error("package.json does not exist.");
     return;
@@ -90,7 +94,6 @@ function installNpmDependencies(isPrismaPHP) {
       npmPkg("typescript"),
       npmPkg("@types/node")
     );
-    packageJson.type = "module";
   }
   const packagesStr = npmDependencies.join(" ");
   try {
