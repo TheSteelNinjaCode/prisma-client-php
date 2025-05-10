@@ -905,12 +905,12 @@ final class PPHPUtility
                                 throw new Exception("Cannot connectOrCreate multiple records for a non-list relation '$relatedFieldName'.");
                             }
 
-                            $existing = $relatedClass->findUnique(['where' => $op]);
+                            $existing = $relatedClass->findUnique(['where' => $op['where']]);
 
                             if ($existing) {
                                 $relatedResult = $existing;
                             } else {
-                                $relatedResult = $relatedClass->create(['data' => $op]);
+                                $relatedResult = $relatedClass->create(['data' => $op['create']]);
                             }
                         }
                         break;
