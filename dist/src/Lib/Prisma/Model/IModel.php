@@ -5,7 +5,7 @@ namespace Lib\Prisma\Model;
 interface IModel
 {
     public function aggregate(array $operation);
-    // public function createMany(array $data);
+    public function createMany(array $data);
     // public function createManyAndReturn(array $data);
     public function create(array $data);
     // public function deleteMany(array $criteria);
@@ -20,5 +20,5 @@ interface IModel
     // public function updateManyAndReturn(array $data);
     // public function update(array $data);
     // public function upsert(array $data);
-    public function count(array $criteria);
+    // public function count(array $criteria);
 }

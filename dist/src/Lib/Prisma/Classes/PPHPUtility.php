@@ -1042,11 +1042,11 @@ final class PPHPUtility
     }
 
     public static function populateIncludedRelations(
-        array $records,
-        array $includes,
-        array $fields,
-        array $fieldsRelatedWithKeys,
-        PDO $pdo,
+        array  $records,
+        array  $includes,
+        array  $fields,
+        array  $fieldsRelatedWithKeys,
+        PDO    $pdo,
         string $dbType,
     ): array {
         $isSingle = !isset($records[0]) || !is_array($records[0]);
@@ -1054,200 +1054,286 @@ final class PPHPUtility
             $records = [$records];
         }
 
-        foreach ($records as $recordIndex => $singleRecord) {
-            foreach ($includes as $key => $value) {
-                if (!isset($fields[$key]) || !isset($fieldsRelatedWithKeys[$key])) {
+        foreach ($includes as $relationName => $relationOpts) {
+            if ($relationOpts === false) {
+                continue;
+            }
+            if (!isset($fields[$relationName], $fieldsRelatedWithKeys[$relationName])) {
+                continue;
+            }
+
+            $relatedField     = $fields[$relationName];
+            $relatedKeys      = $fieldsRelatedWithKeys[$relationName];
+            $relatedInstance  = self::makeRelatedInstance($relatedField['type'], $pdo);
+
+            $instanceField = self::pickOppositeField(
+                $relatedInstance->_fields,
+                $relatedField['relationName'],
+                $relatedField['isList']
+            );
+
+            if ($relatedField['isList'] && !$instanceField['isList']) {
+                $childFk  = $instanceField['relationFromFields'][0] ?? null;
+                $parentPk = $instanceField['relationToFields'][0]   ?? null;
+                if ($childFk === null || $parentPk === null) {
+                    goto PER_RECORD;
+                }
+
+                $parentIds = array_values(
+                    array_unique(
+                        array_filter(
+                            array_column($records, $parentPk),
+                            static fn($v) => $v !== null
+                        )
+                    )
+                );
+                if (!$parentIds) {
+                    foreach ($records as &$rec) {
+                        $rec[$relationName] = [];
+                    }
+                    unset($rec);
                     continue;
                 }
 
-                $relatedField = $fields[$key];
-                $relatedFieldKeys = $fieldsRelatedWithKeys[$key];
+                [$base] = self::buildQueryOptions(
+                    [],
+                    $relationOpts,
+                    $relatedField,
+                    $relatedKeys,
+                    $instanceField
+                );
 
-                $relatedClass = "Lib\\Prisma\\Classes\\" . $relatedField['type'];
-                if (!class_exists($relatedClass)) {
-                    throw new Exception("Class $relatedClass does not exist.");
+                $groups = self::loadOneToManyBatch($relatedInstance, $childFk, $parentIds, $base);
+
+                foreach ($records as &$rec) {
+                    $rec[$relationName] = $groups[$rec[$parentPk]] ?? [];
                 }
-
-                $reflectionClass = new ReflectionClass($relatedClass);
-                $relatedInstance = $reflectionClass->newInstance($pdo);
-                $relatedInstanceField = $relatedInstance->_fieldByRelationName[$relatedField['relationName']];
-
-                $whereConditions = [];
-                foreach ($relatedFieldKeys['relationFromFields'] as $index => $fromField) {
-                    $toField = $relatedFieldKeys['relationToFields'][$index];
-
-                    if (!array_key_exists($toField, $singleRecord) && !array_key_exists($fromField, $singleRecord)) {
-                        continue 2;
-                    }
-
-                    if (empty($relatedInstanceField['relationFromFields']) && empty($relatedInstanceField['relationToFields'])) {
-                        if ($relatedInstanceField['relationName'] === $relatedField['relationName'] && array_key_exists($fromField, $singleRecord)) {
-                            $whereConditions[$toField] = $singleRecord[$fromField];
-                        } else {
-                            $whereConditions[$toField] = $singleRecord[$toField];
-                        }
-                    } elseif ($relatedInstanceField['isList']) {
-                        $whereConditions[$toField] = $singleRecord[$fromField];
-                    } else {
-                        $whereConditions[$fromField] = $singleRecord[$toField];
-                    }
-                }
-
-                if (isset($value['where']) && is_array($value['where'])) {
-                    $whereConditions = array_merge($whereConditions, $value['where']);
-                }
-
-                $selectFields = [];
-                if (isset($value['select']) && is_array($value['select'])) {
-                    foreach ($value['select'] as $field => $subSelect) {
-                        if (is_array($subSelect)) {
-                            $selectFields[$field] = $subSelect;
-                        } elseif ((bool) $subSelect === true) {
-                            if (is_numeric($field)) {
-                                $selectFields[$field] = $subSelect;
-                            } else {
-                                $selectFields[$field] = true;
-                            }
-                        }
-                    }
-                }
-
-                $includeFields = [];
-                if (isset($value['include']) && is_array($value['include'])) {
-                    foreach ($value['include'] as $field => $subInclude) {
-                        if (is_array($subInclude)) {
-                            $includeFields[$field] = $subInclude;
-                        } elseif ((bool) $subInclude === true) {
-                            if (is_numeric($field)) {
-                                $includeFields[$field] = $subInclude;
-                            } else {
-                                $includeFields[$field] = true;
-                            }
-                        }
-                    }
-                }
-
-                $omitFields = [];
-                if (isset($value['omit']) && is_array($value['omit'])) {
-                    foreach ($value['omit'] as $field => $shouldOmit) {
-                        if ((bool) $shouldOmit === true) {
-                            $omitFields[$field] = true;
-                        }
-                    }
-                }
-
-                $queryOptions = ['where' => $whereConditions];
-                if (!empty($selectFields)) {
-                    $queryOptions['select'] = $selectFields;
-                }
-
-                if (!empty($includeFields)) {
-                    $queryOptions['include'] = $includeFields;
-                }
-
-                if (!empty($omitFields)) {
-                    $queryOptions['omit'] = $omitFields;
-                }
-
-                if ($relatedField['isList'] && $relatedInstanceField['isList']) {
-                    if ($relatedField['type'] === $relatedInstanceField['type']) {
-                        if (isset($queryOptions['where']) && empty($queryOptions['where'])) {
-                            unset($queryOptions['where']);
-                        }
-
-                        if (empty($queryOptions)) {
-                            $relatedFieldByRelationName = array_filter(
-                                $fields,
-                                fn($field) => isset($field['relationName'])
-                                    && $field['relationName'] === $relatedInstanceField['relationName']
-                                    && isset($relatedInstanceField['name'])
-                                    && $relatedInstanceField['name'] !== $field['name']
-                            );
-
-                            $whereConditions = [];
-                            if (!empty($relatedFieldByRelationName)) {
-                                $firstRelatedField = reset($relatedFieldByRelationName);
-                                if (!empty($firstRelatedField['relationFromFields']) && isset($firstRelatedField['relationFromFields'][0])) {
-                                    $whereConditions[$firstRelatedField['relationFromFields'][0]] = $singleRecord[$firstRelatedField['relationToFields'][0]];
-                                }
-                            }
-
-                            if (!empty($whereConditions)) {
-                                $relatedFieldResult = $relatedInstance->findMany(
-                                    ['where' => $whereConditions]
-                                );
-                            } else {
-                                $relatedFieldResult = $relatedInstance->findMany();
-                            }
-                        } else {
-                            $relatedFieldResult = $relatedInstance->findMany($queryOptions);
-                        }
-                    } else {
-                        $implicitModelInfo = PPHPUtility::compareStringsAlphabetically($relatedField['type'], $relatedInstanceField['type']);
-                        $searchColumn = ($relatedField['type'] === $implicitModelInfo['A']) ? 'B' : 'A';
-                        $returnColumn = ($searchColumn === 'A') ? 'B' : 'A';
-
-                        $idField = null;
-                        foreach ($relatedField['relationFromFields'] as $index => $fromField) {
-                            if (isset($singleRecord[$fromField])) {
-                                $idField = $fromField;
-                                break;
-                            }
-                        }
-
-                        if (!$idField) {
-                            foreach ($relatedInstance->_fields as $field) {
-                                if ($field['isId']) {
-                                    $idField = $field['name'];
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (!$idField || !isset($singleRecord[$idField])) {
-                            throw new Exception("No valid ID field found for relation lookup.");
-                        }
-
-                        $idValue = $singleRecord[$idField];
-
-                        $tableName = PPHPUtility::quoteColumnName($dbType, $implicitModelInfo['Name']);
-                        $searchColumn = PPHPUtility::quoteColumnName($dbType, $searchColumn);
-                        $returnColumn = PPHPUtility::quoteColumnName($dbType, $returnColumn);
-                        $sql = "SELECT " . $returnColumn . " FROM " . $tableName . " WHERE " . $searchColumn . " = :id";
-                        $stmt = $pdo->prepare($sql);
-                        $stmt->execute(['id' => $idValue]);
-                        $implicitRecords = $stmt->fetchAll(PDO::FETCH_COLUMN);
-
-                        if (!empty($implicitRecords)) {
-                            $queryOptions['where'] = array_merge($queryOptions['where'] ?? [], [
-                                'id' => [
-                                    'in' => $implicitRecords
-                                ]
-                            ]);
-                            $queryOptions = array_filter($queryOptions, fn($value) => !empty($value));
-                            $relatedFieldResult = $relatedInstance->findMany($queryOptions);
-                        } else {
-                            $relatedFieldResult = [];
-                        }
-                    }
-                } else {
-                    if ($relatedField['isList']) {
-                        $relatedFieldResult = $relatedInstance->findMany($queryOptions);
-                    } else {
-                        $relatedFieldResult = $relatedInstance->findUnique($queryOptions);
-                    }
-                }
-
-                $singleRecord[$key] = $relatedFieldResult;
+                unset($rec);
+                continue;
             }
 
-            $records[$recordIndex] = $singleRecord;
+            PER_RECORD:
+            foreach ($records as $idx => $singleRecord) {
+                [$baseQuery, $where] = self::buildQueryOptions(
+                    $singleRecord,
+                    $relationOpts,
+                    $relatedField,
+                    $relatedKeys,
+                    $instanceField
+                );
+
+                if ($relatedField['isList'] && $instanceField['isList']) {
+                    $result = ($relatedField['type'] === $instanceField['type'])
+                        ? self::loadExplicitMany($relatedInstance, $relatedField, $instanceField, $singleRecord, $baseQuery, $fields)
+                        : self::loadImplicitMany($relatedInstance, $relatedField, $instanceField, $singleRecord, $baseQuery, $where, $dbType, $pdo);
+                } elseif ($relatedField['isList']) {
+                    $result = self::loadOneToMany($relatedInstance, $baseQuery);
+                } else {
+                    $result = self::loadOneToOne($relatedInstance, $baseQuery);
+                }
+
+                $records[$idx][$relationName] = $result;
+            }
         }
 
-        if ($isSingle) {
-            return $records[0];
+        return $isSingle ? $records[0] : $records;
+    }
+
+    private static function pickOppositeField(array $allFields, string $relationName, bool $isListOnCaller): array
+    {
+        $candidates = array_values(array_filter(
+            $allFields,
+            static fn($f) => ($f['relationName'] ?? null) === $relationName
+        ));
+
+        if (count($candidates) === 1) {
+            return $candidates[0];
         }
 
-        return $records;
+        foreach ($candidates as $f) {
+            if ($f['isList'] !== $isListOnCaller) {
+                return $f;
+            }
+        }
+
+        return $candidates[0];
+    }
+
+    private static function loadOneToManyBatch(
+        object $relatedInstance,
+        string $childFk,
+        array  $parentIds,
+        array  $baseQuery,
+    ): array {
+        if (!isset($baseQuery['where'][$childFk])) {
+            $baseQuery['where'][$childFk] = ['in' => $parentIds];
+        }
+
+        $rows = $relatedInstance->findMany($baseQuery);
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            $key = $row->{$childFk};
+            $grouped[$key][] = $row;
+        }
+
+        return $grouped;
+    }
+
+    private static function loadOneToOne(object $relatedInstance, array $query): array|object|null
+    {
+        return $relatedInstance->findUnique($query);
+    }
+
+    private static function loadOneToMany(object $relatedInstance, array $query): array
+    {
+        return $relatedInstance->findMany($query);
+    }
+
+    private static function loadExplicitMany(
+        object $relatedInstance,
+        array  $relatedField,
+        array  $relatedInstanceField,
+        array  $singleRecord,
+        array  $queryOptions,
+        array  $parentFields,
+    ): array {
+        if (isset($queryOptions['where']) && $queryOptions['where'] === []) {
+            unset($queryOptions['where']);
+        }
+
+        if ($queryOptions === []) {
+            $opposites = array_values(array_filter(
+                $parentFields,
+                fn($f) => ($f['relationName'] ?? null) === $relatedInstanceField['relationName'] &&
+                    $f['name']               !== $relatedInstanceField['name']
+            ));
+
+            if ($opposites && isset($opposites[0]['relationFromFields'][0])) {
+                $src = $opposites[0]['relationFromFields'][0];
+                $dst = $opposites[0]['relationToFields'][0];
+                $queryOptions['where'][$src] = $singleRecord[$dst] ?? null;
+            }
+        }
+
+        return $relatedInstance->findMany($queryOptions);
+    }
+
+    private static function loadImplicitMany(
+        object $relatedInstance,
+        array  $relatedField,
+        array  $relatedInstanceField,
+        array  $singleRecord,
+        array  $baseQuery,
+        array  $whereConditions,
+        string $dbType,
+        PDO    $pdo,
+    ): array {
+        $info         = PPHPUtility::compareStringsAlphabetically($relatedField['type'], $relatedInstanceField['type']);
+        $searchColumn = ($relatedField['type'] === $info['A']) ? 'B' : 'A';
+        $returnColumn = $searchColumn === 'A' ? 'B' : 'A';
+        $idField      = self::detectIdField($singleRecord, $relatedField, $relatedInstance);
+        $idValue      = $singleRecord[$idField] ?? null;
+
+        if ($idValue === null) {
+            return [];
+        }
+
+        $table   = PPHPUtility::quoteColumnName($dbType, $info['Name']);
+        $search  = PPHPUtility::quoteColumnName($dbType, $searchColumn);
+        $return  = PPHPUtility::quoteColumnName($dbType, $returnColumn);
+        $sql     = "SELECT {$return} FROM {$table} WHERE {$search} = :id";
+        $stmt    = $pdo->prepare($sql);
+        $stmt->execute(['id' => $idValue]);
+        $ids     = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (!$ids) {
+            return [];
+        }
+
+        $baseQuery['where'] = array_merge($whereConditions, ['id' => ['in' => $ids]]);
+        return $relatedInstance->findMany($baseQuery);
+    }
+
+    private static function makeRelatedInstance(string $model, PDO $pdo): object
+    {
+        $fqcn = "Lib\\Prisma\\Classes\\{$model}";
+        if (!class_exists($fqcn)) {
+            throw new Exception("Class {$fqcn} does not exist.");
+        }
+        return (new ReflectionClass($fqcn))->newInstance($pdo);
+    }
+
+    private static function buildQueryOptions(
+        array $singleRecord,
+        mixed $relationOpts,
+        array $relatedField,
+        array $relatedFieldKeys,
+        array $relatedInstanceField,
+    ): array {
+        if ($relationOpts === true) {
+            $relationOpts = [];
+        } elseif (!is_array($relationOpts)) {
+            throw new Exception('include relation options must be array|true');
+        }
+
+        $where = [];
+        foreach ($relatedFieldKeys['relationFromFields'] as $i => $fromField) {
+            $toField = $relatedFieldKeys['relationToFields'][$i];
+
+            if (!isset($singleRecord[$fromField]) && !isset($singleRecord[$toField])) {
+                continue;
+            }
+
+            if (empty($relatedInstanceField['relationFromFields']) && empty($relatedInstanceField['relationToFields'])) {
+                $where[$toField] = $singleRecord[$fromField] ?? $singleRecord[$toField] ?? null;
+            } elseif ($relatedInstanceField['isList']) {
+                $where[$toField] = $singleRecord[$fromField];
+            } else {
+                $where[$fromField] = $singleRecord[$toField];
+            }
+        }
+
+        if (isset($relationOpts['where'])) {
+            $where = array_merge($where, $relationOpts['where']);
+        }
+
+        $query = ['where' => $where];
+        foreach (['select', 'include', 'omit'] as $clause) {
+            if (!isset($relationOpts[$clause])) {
+                continue;
+            }
+            $query[$clause] = self::normaliseClause($relationOpts[$clause]);
+        }
+
+        return [$query, $where];
+    }
+
+    private static function normaliseClause(array $raw): array
+    {
+        $out = [];
+        foreach ($raw as $k => $v) {
+            if (is_array($v)) {
+                $out[$k] = $v;
+            } elseif ((bool)$v === true) {
+                $out[is_numeric($k) ? $v : $k] = true;
+            }
+        }
+        return $out;
+    }
+
+    private static function detectIdField(array $singleRecord, array $relatedField, object $relatedInstance): string
+    {
+        foreach ($relatedField['relationFromFields'] as $from) {
+            if (isset($singleRecord[$from])) {
+                return $from;
+            }
+        }
+        foreach ($relatedInstance->_fields as $f) {
+            if ($f['isId']) {
+                return $f['name'];
+            }
+        }
+        throw new Exception('Unable to determine ID field for implicit many‑to‑many lookup.');
     }
 }
