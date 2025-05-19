@@ -188,12 +188,12 @@ const readJsonFile = (filePath) => {
   return JSON.parse(jsonData);
 };
 const npmPinnedVersions = {
-  prisma: "^6.5.0",
-  "@prisma/client": "^6.5.0",
-  "@prisma/internals": "^6.5.0",
-  tsx: "^4.19.3",
-  typescript: "^5.8.2",
-  "@types/node": "^22.13.11",
+  prisma: "^6.8.2",
+  "@prisma/client": "^6.8.2",
+  "@prisma/internals": "^6.8.2",
+  tsx: "^4.19.4",
+  typescript: "^5.8.3",
+  "@types/node": "^22.15.18",
 };
 function npmPkg(name) {
   return npmPinnedVersions[name] ? `${name}@${npmPinnedVersions[name]}` : name;
