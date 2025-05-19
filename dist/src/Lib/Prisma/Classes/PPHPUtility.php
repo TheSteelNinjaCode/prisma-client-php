@@ -906,13 +906,26 @@ final class PPHPUtility
                                 $modelFieldData[$modelClass->_primaryKey] = $existingParent->{$modelClass->_primaryKey};
                             }
 
+                            $relatedId = $relatedFieldData[$relatedClass->_primaryKey];
+                            $modelId   = $modelFieldData[$modelClass->_primaryKey];
+
+                            $implicit  = self::compareStringsAlphabetically($modelRelatedFieldType, $modelName);
+
+                            if ($implicit['A'] === $modelName) {
+                                $idA = $modelId;
+                                $idB = $relatedId;
+                            } else {
+                                $idA = $relatedId;
+                                $idB = $modelId;
+                            }
+
                             $relatedResult = self::handleImplicitRelationInsert(
                                 $modelName,
                                 $modelRelatedFieldType,
                                 $dbType,
                                 $pdo,
-                                $relatedFieldData[$relatedClass->_primaryKey],
-                                $modelFieldData[$modelClass->_primaryKey],
+                                $idA,
+                                $idB
                             );
                         } else {
                             if (!$modelRelatedFieldIsList && count($operations) > 1) {
