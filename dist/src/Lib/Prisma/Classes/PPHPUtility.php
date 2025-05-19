@@ -889,13 +889,30 @@ final class PPHPUtility
                         } elseif (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
                             $relatedFieldData = $op[$modelRelatedFieldType];
                             $modelFieldData   = $op[$modelName];
-                            $relatedResult    = self::handleImplicitRelationInsert(
+
+                            if (!isset($relatedFieldData[$relatedClass->_primaryKey])) {
+                                $existing = $relatedClass->findUnique(['where' => $relatedFieldData]);
+                                if (!$existing) {
+                                    throw new Exception("Cannot connect '{$relatedFieldName}': related record not found.");
+                                }
+                                $relatedFieldData[$relatedClass->_primaryKey] = $existing->{$relatedClass->_primaryKey};
+                            }
+
+                            if (!isset($modelFieldData[$modelClass->_primaryKey])) {
+                                $existingParent = $modelClass->findUnique(['where' => $modelFieldData]);
+                                if (!$existingParent) {
+                                    throw new Exception("Cannot connect '{$relatedFieldName}': parent record not found.");
+                                }
+                                $modelFieldData[$modelClass->_primaryKey] = $existingParent->{$modelClass->_primaryKey};
+                            }
+
+                            $relatedResult = self::handleImplicitRelationInsert(
                                 $modelName,
                                 $modelRelatedFieldType,
                                 $dbType,
                                 $pdo,
-                                $modelFieldData[$modelClass->_primaryKey],
                                 $relatedFieldData[$relatedClass->_primaryKey],
+                                $modelFieldData[$modelClass->_primaryKey],
                             );
                         } else {
                             if (!$modelRelatedFieldIsList && count($operations) > 1) {
