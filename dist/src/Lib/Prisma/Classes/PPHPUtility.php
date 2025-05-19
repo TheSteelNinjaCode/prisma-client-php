@@ -834,36 +834,62 @@ final class PPHPUtility
     public static function processRelation(
         string $modelName,
         string $relatedFieldName,
-        array $fieldData,
-        PDO $pdo,
+        array  $fieldData,
+        PDO    $pdo,
         string $dbType,
-        bool $requestOption = true,
+        bool   $requestOption = true,
     ): array {
+        $modelClassName  = "Lib\\Prisma\\Classes\\{$modelName}";
+        $modelClass      = (new ReflectionClass($modelClassName))->newInstance($pdo);
 
-        $modelClassName = "Lib\\Prisma\\Classes\\" . $modelName;
-        $modelReflection = new ReflectionClass($modelClassName);
-        $modelClass = $modelReflection->newInstance($pdo);
         $modelFieldsRelatedWithKeys = $modelClass->_fieldsRelatedWithKeys[$relatedFieldName];
-        $modelRelatedFromFields = $modelFieldsRelatedWithKeys['relationFromFields'];
-        $modelRelatedToFields = $modelFieldsRelatedWithKeys['relationToFields'];
-        $modelRelatedField = $modelClass->_fields[$relatedFieldName];
+        $modelRelatedFromFields     = $modelFieldsRelatedWithKeys['relationFromFields'];
+        $modelRelatedToFields       = $modelFieldsRelatedWithKeys['relationToFields'];
+
+        $modelRelatedField       = $modelClass->_fields[$relatedFieldName];
         $modelRelatedFieldIsList = $modelRelatedField['isList'] ?? false;
-        $modelRelatedFieldType = $modelRelatedField['type'];
-        $relatedClassName = "Lib\\Prisma\\Classes\\" . $modelRelatedFieldType;
-        $relatedReflection = new ReflectionClass($relatedClassName);
-        $relatedClass = $relatedReflection->newInstance($pdo);
+        $modelRelatedFieldType   = $modelRelatedField['type'];
+
+        $relatedClassName = "Lib\\Prisma\\Classes\\{$modelRelatedFieldType}";
+        $relatedClass     = (new ReflectionClass($relatedClassName))->newInstance($pdo);
+
+        $inverseInfo      = null;
+        $childFkFields    = [];
+        foreach ($relatedClass->_fieldsRelatedWithKeys as $childField => $info) {
+            $infoType = $info['type'] ?? ($relatedClass->_fields[$childField]['type'] ?? null);
+            if ($infoType === $modelName && !empty($info['relationFromFields'])) {
+                $inverseInfo   = $info;
+                $childFkFields = $info['relationFromFields'];
+                break;
+            }
+        }
+        $isExplicitOneToMany = $modelRelatedFieldIsList && $inverseInfo !== null;
 
         $relatedResult = null;
+
         foreach ($fieldData as $action => $actionData) {
             $operations = isset($actionData[0]) ? $actionData : [$actionData];
 
             foreach ($operations as $op) {
                 switch ($action) {
                     case 'connect':
-                        if (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
+                        if ($isExplicitOneToMany) {
+                            $parentId = $op[$childFkFields[0]]
+                                ?? throw new Exception("Missing parent id while connecting '{$relatedFieldName}'.");
+
+                            $where = array_diff_key($op, array_flip($childFkFields));
+                            if (!$where) {
+                                throw new Exception("A unique selector (e.g. 'code') is required inside 'connect' for '{$relatedFieldName}'.");
+                            }
+                            $fkUpdate      = array_fill_keys($childFkFields, $parentId);
+                            $relatedResult = $relatedClass->update([
+                                'where' => $where,
+                                'data'  => $fkUpdate,
+                            ]);
+                        } elseif (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
                             $relatedFieldData = $op[$modelRelatedFieldType];
-                            $modelFieldData = $op[$modelName];
-                            $relatedResult = self::handleImplicitRelationInsert(
+                            $modelFieldData   = $op[$modelName];
+                            $relatedResult    = self::handleImplicitRelationInsert(
                                 $modelName,
                                 $modelRelatedFieldType,
                                 $dbType,
@@ -873,9 +899,8 @@ final class PPHPUtility
                             );
                         } else {
                             if (!$modelRelatedFieldIsList && count($operations) > 1) {
-                                throw new Exception("Cannot connect multiple records for a non-list relation '$relatedFieldName'.");
+                                throw new Exception("Cannot connect multiple records for a non-list relation '{$relatedFieldName}'.");
                             }
-
                             $relatedResult = $relatedClass->findUnique(['where' => $op]);
                         }
                         break;
@@ -940,23 +965,52 @@ final class PPHPUtility
                         $relatedResult = $relatedClass->delete(['where' => $whereCondition]);
                         break;
                     case 'disconnect':
-                        if (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
-                            $relatedFieldData = $op[$modelRelatedFieldType];
-                            $modelFieldData = $op[$modelName];
+                        if ($isExplicitOneToMany) {
+                            foreach ($operations as $opDisc) {
+                                $where = array_diff_key($opDisc, array_flip($childFkFields));
+                                $relatedClass->update([
+                                    'where' => $where,
+                                    'data'  => array_fill_keys($childFkFields, null),
+                                ]);
+                            }
+                            $relatedResult = true;
+                        } elseif (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
+                            $rData = $op[$modelRelatedFieldType];
+                            $mData = $op[$modelName];
                             $relatedResult = self::handleImplicitRelationDelete(
                                 $modelName,
                                 $modelRelatedFieldType,
                                 $dbType,
                                 $pdo,
-                                $modelFieldData[$modelClass->_primaryKey],
-                                $relatedFieldData[$relatedClass->_primaryKey]
+                                $mData[$modelClass->_primaryKey],
+                                $rData[$relatedClass->_primaryKey]
                             );
                         } else {
                             $relatedResult = $relatedClass->delete(['where' => $op]);
                         }
                         break;
                     case 'set':
-                        if (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
+                        if ($isExplicitOneToMany) {
+                            $parentId = $operations[0][$childFkFields[0]]
+                                ?? throw new Exception("Missing parent id in 'set' for '{$relatedFieldName}'.");
+
+                            $relatedClass->updateMany([
+                                'where' => [$childFkFields[0] => $parentId],
+                                'data'  => array_fill_keys($childFkFields, null),
+                            ]);
+
+                            $newIds = [];
+                            foreach ($operations as $opSet) {
+                                $where     = array_diff_key($opSet, array_flip($childFkFields));
+                                $fkUpdate  = array_fill_keys($childFkFields, $parentId);
+                                $updateRes = $relatedClass->update(['where' => $where, 'data' => $fkUpdate]);
+                                $newIds[]  = $updateRes->{$relatedClass->_primaryKey};
+                            }
+
+                            $relatedResult = $relatedClass->findMany([
+                                'where' => [$relatedClass->_primaryKey => ['in' => $newIds]],
+                            ]);
+                        } elseif (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
                             $newRelatedIds = [];
                             $primaryId = null;
                             foreach ($operations as $opSet) {
@@ -1018,26 +1072,23 @@ final class PPHPUtility
             }
         }
 
-        $relatedResult = (array) $relatedResult;
+        $relatedResult = (array)$relatedResult;
 
         if (!$requestOption) {
             return $relatedResult;
         }
-
         if (!$relatedResult) {
-            throw new Exception("Failed to process related record for '$relatedFieldName'.");
+            throw new Exception("Failed to process related record for '{$relatedFieldName}'.");
         }
 
         $bindings = [];
-        foreach ($modelRelatedFromFields as $index => $fromField) {
-            $toField = $modelRelatedToFields[$index];
+        foreach ($modelRelatedFromFields as $i => $fromField) {
+            $toField = $modelRelatedToFields[$i];
             if (!isset($relatedResult[$toField])) {
-                throw new Exception("The field '$toField' is missing in the related data for '$relatedFieldName'.");
+                throw new Exception("The field '{$toField}' is missing in the related data for '{$relatedFieldName}'.");
             }
-
             $bindings[$fromField] = $relatedResult[$toField];
         }
-
         return $bindings;
     }
 
