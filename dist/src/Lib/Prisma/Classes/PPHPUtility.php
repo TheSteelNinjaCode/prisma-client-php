@@ -1169,6 +1169,10 @@ final class PPHPUtility
             $baseQuery['where'][$childFk] = ['in' => $parentIds];
         }
 
+        if (isset($baseQuery['select']) && $baseQuery['select'] !== []) {
+            $baseQuery['select'][$childFk] = true;
+        }
+
         $rows = $relatedInstance->findMany($baseQuery);
 
         $grouped = [];
