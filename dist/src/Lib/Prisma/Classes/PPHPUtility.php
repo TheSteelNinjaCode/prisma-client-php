@@ -1045,22 +1045,62 @@ final class PPHPUtility
                             $parentId = $operations[0][$childFkFields[0]]
                                 ?? throw new Exception("Missing parent id in 'set' for '{$relatedFieldName}'.");
 
-                            $relatedClass->updateMany([
-                                'where' => [$childFkFields[0] => $parentId],
-                                'data'  => array_fill_keys($childFkFields, null),
-                            ]);
+                            $keepIds = [];
+                            foreach ($operations as $opSet) {
+                                if (isset($opSet[$relatedClass->_primaryKey])) {
+                                    $keepIds[] = $opSet[$relatedClass->_primaryKey];
+                                }
+                            }
+
+                            $deleteWhere = [
+                                $childFkFields[0] => $parentId,
+                            ];
+                            if ($keepIds) {
+                                $deleteWhere[$relatedClass->_primaryKey] = ['notIn' => $keepIds];
+                            }
+
+                            $relatedClass->deleteMany(['where' => $deleteWhere]);
 
                             $newIds = [];
                             foreach ($operations as $opSet) {
-                                $where     = array_diff_key($opSet, array_flip($childFkFields));
-                                $fkUpdate  = array_fill_keys($childFkFields, $parentId);
-                                $updateRes = $relatedClass->update(['where' => $where, 'data' => $fkUpdate]);
-                                $newIds[]  = $updateRes->{$relatedClass->_primaryKey};
+                                $where    = array_diff_key($opSet, array_flip($childFkFields));
+                                $fkUpdate = array_fill_keys($childFkFields, $parentId);
+
+                                $row = $relatedClass->upsert([
+                                    'where'  => $where,
+                                    'update' => $fkUpdate,
+                                    'create' => array_merge($where, $fkUpdate),
+                                ]);
+
+                                $newIds[] = $row->{$relatedClass->_primaryKey};
                             }
 
                             $relatedResult = $relatedClass->findMany([
-                                'where' => [$relatedClass->_primaryKey => ['in' => $newIds]],
+                                'where' => [
+                                    $relatedClass->_primaryKey => ['in' => $newIds],
+                                ],
                             ]);
+                            $relatedResult = (array)$relatedResult;
+
+                            if (!$requestOption) {
+                                return $relatedResult;
+                            }
+                            if (!$relatedResult) {
+                                throw new Exception("Failed to process related record for '{$relatedFieldName}'.");
+                            }
+
+                            if ($modelRelatedFieldIsList) {
+                                return [];
+                            }
+
+                            $bindings = [];
+                            foreach ($modelRelatedFromFields as $i => $fromField) {
+                                $toField = $modelRelatedToFields[$i];
+                                if (!isset($relatedResult[$toField])) {
+                                    throw new Exception("The field '{$toField}' is missing …");
+                                }
+                            }
+                            return $bindings;
                         } elseif (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
                             $newRelatedIds = [];
                             $primaryId = null;
