@@ -4,14 +4,9 @@ namespace Lib\Prisma\Classes;
 
 use Lib\Validator;
 use ReflectionClass;
-use InvalidArgumentException;
-use DateTime;
-use Brick\Math\BigDecimal;
-use Brick\Math\BigInteger;
-use ReflectionUnionType;
-use ReflectionNamedType;
 use Exception;
 use PDO;
+use UnitEnum;
 
 enum ArrayType: string
 {
@@ -357,6 +352,28 @@ final class PPHPUtility
 
         if (is_array($value)) {
             foreach ($value as $condition => $val) {
+
+                $enumAllowed = ['equals', 'not', 'in', 'notIn'];
+                $unsupported = ['contains', 'startsWith', 'endsWith', 'gt', 'gte', 'lt', 'lte'];
+
+                $castEnum = static function ($v) use ($condition, $key, $enumAllowed, $unsupported) {
+                    if ($v instanceof UnitEnum) {
+                        if (in_array($condition, $unsupported, true)) {
+                            $msg = "Operator '$condition' is not supported for enum field '$key'. ";
+                            $msg .= 'Allowed operators: ' . implode(', ', $enumAllowed) . '.';
+                            throw new Exception($msg);
+                        }
+                        return $v->value;
+                    }
+                    return $v;
+                };
+
+                if (in_array($condition, ['in', 'notIn'], true)) {
+                    $val = array_map($castEnum, $val);
+                } else {
+                    $val = $castEnum($val);
+                }
+
                 $bindingKey = ":" . $prefix . $key . "_" . $condition . $level;
                 switch ($condition) {
                     case 'contains':
@@ -419,6 +436,10 @@ final class PPHPUtility
             } elseif ($value === '') {
                 $sqlConditions[] = "$qualifiedField = ''";
             } else {
+                if ($value instanceof UnitEnum) {
+                    $value = $value->value;
+                }
+
                 $bindingKey = ":" . $prefix . $key . $level;
                 $validatedValue = Validator::string($value, false);
                 $sqlConditions[] = "$qualifiedField = $bindingKey";

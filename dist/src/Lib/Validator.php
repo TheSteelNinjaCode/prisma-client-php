@@ -14,6 +14,8 @@ use Brick\Math\BigDecimal;
 use Brick\Math\BigInteger;
 use Brick\Math\Exception\MathException;
 use Brick\Math\RoundingMode;
+use InvalidArgumentException;
+use BackedEnum;
 
 final class Validator
 {
@@ -303,6 +305,44 @@ final class Validator
     public static function enum($value, array $allowedValues): bool
     {
         return in_array($value, $allowedValues, true);
+    }
+
+    /**
+     * Validates and casts a value (or array of values) of a native enum.
+     *
+     * @template T of BackedEnum
+     * @param string|int|T|array<string|int|T> $value      String, integer, instance, or array.
+     * @param class-string<T>                  $enumClass  Enum class name.
+     * @return string|int|array<string|int>|null           Backed value(s) or null if any is invalid.
+     * @throws InvalidArgumentException                   If the class is not an enum.
+     */
+    public static function enumClass(mixed $value, string $enumClass): string|int|array|null
+    {
+        if (!enum_exists($enumClass)) {
+            throw new InvalidArgumentException("Enum '$enumClass' not found.");
+        }
+
+        $cast = static function ($v) use ($enumClass) {
+            if (is_object($v) && $v instanceof $enumClass && property_exists($v, 'value')) {
+                return $v->value;
+            }
+            $inst = $enumClass::tryFrom($v);
+            return $inst?->value;
+        };
+
+        if (is_array($value)) {
+            $out = [];
+            foreach ($value as $item) {
+                $val = $cast($item);
+                if ($val === null) {
+                    return null;
+                }
+                $out[] = $val;
+            }
+            return $out;
+        }
+
+        return $cast($value);
     }
 
     /**
@@ -647,7 +687,7 @@ final class Validator
                     return true;
                 }
                 break;
-                // Add additional rules as needed...
+            // Add additional rules as needed...
             default:
                 return true;
         }

@@ -202,7 +202,7 @@ const composerPinnedVersions = {
   "ezyang/htmlpurifier": "^4.18.0",
   "calicastle/cuid": "^2.0.0",
   "symfony/uid": "^7.2.0",
-  "brick/math": "^0.13.0",
+  "brick/math": "^0.13.1",
 };
 function composerPkg(name) {
   return composerPinnedVersions[name]
