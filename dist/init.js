@@ -87,6 +87,7 @@ function installNpmDependencies(isPrismaPHP) {
     npmPkg("prisma"),
     npmPkg("@prisma/client"),
     npmPkg("@prisma/internals"),
+    npmPkg("prisma-client-php"),
   ];
   if (!isPrismaPHP) {
     npmDependencies.push(
@@ -191,6 +192,7 @@ const npmPinnedVersions = {
   prisma: "^6.8.2",
   "@prisma/client": "^6.8.2",
   "@prisma/internals": "^6.8.2",
+  "prisma-client-php": "latest",
   tsx: "^4.19.4",
   typescript: "^5.8.3",
   "@types/node": "^22.15.18",
