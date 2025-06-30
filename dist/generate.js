@@ -24,7 +24,8 @@ const main = async () => {
     const settingsContent = fs.readFileSync(settingsPath, { encoding: "utf8" });
     // Parse the string to get the JSON object
     const projectSettings = JSON.parse(settingsContent);
-    const phpGenerateClassPath = "src/Lib/Prisma/Classes";
+    const phpGenerateClassPath =
+      projectSettings.phpGenerateClassPath ?? "src/Lib/Prisma/Classes";
     const phpFile = `${__dirname}/index.php`;
     const encryptedFilePath = `${__dirname}/index.enc`;
     const secretKey = getSecretKey();

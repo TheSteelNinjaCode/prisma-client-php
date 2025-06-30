@@ -163,7 +163,8 @@ async function installComposerDependencies(isPrismaPHP) {
     composerDependencies.push(
       composerPkg("ezyang/htmlpurifier"),
       composerPkg("symfony/uid"),
-      composerPkg("brick/math")
+      composerPkg("brick/math"),
+      composerPkg("tsnc/prisma-php")
     );
   }
   try {
@@ -203,6 +204,7 @@ const composerPinnedVersions = {
   "calicastle/cuid": "^2.0.0",
   "symfony/uid": "^7.2.0",
   "brick/math": "^0.13.1",
+  "tsnc/prisma-php": "^1.0.0",
 };
 function composerPkg(name) {
   return composerPinnedVersions[name]

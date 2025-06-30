@@ -2,7 +2,7 @@
 
 namespace Lib\Prisma\Classes;
 
-use Lib\Validator;
+use PPHP\Validator;
 use ReflectionClass;
 use Exception;
 use PDO;
@@ -476,107 +476,93 @@ final class PPHPUtility
         }
     }
 
-    /**
-     * Modifies the given SQL query based on the provided criteria.
-     *
-     * This function handles the following criteria:
-     * - _max: Adds MAX() aggregate functions for specified columns.
-     * - _min: Adds MIN() aggregate functions for specified columns.
-     * - _count: Adds COUNT() aggregate functions for specified columns.
-     * - _avg: Adds AVG() aggregate functions for specified columns.
-     * - _sum: Adds SUM() aggregate functions for specified columns.
-     * - orderBy: Adds ORDER BY clause based on specified columns and directions.
-     * - take: Adds LIMIT clause to restrict the number of rows returned.
-     * - skip: Adds OFFSET clause to skip a specified number of rows.
-     *
-     * @param array $criteria An associative array of criteria for modifying the query.
-     * @param string &$sql The SQL query string to be modified.
-     * @param string $dbType The type of the database (e.g., 'mysql', 'pgsql').
-     * @param string $tableName The name of the table being queried.
-     */
-    public static function queryOptions(array $criteria, string &$sql, $dbType, $tableName)
-    {
-        // Handle _max, _min, _count, _avg, and _sum
-        $selectParts = [];
-        if (isset($criteria['_max'])) {
-            foreach ($criteria['_max'] as $column => $enabled) {
-                if ($enabled) {
-                    $selectParts[] = "MAX($tableName." . self::quoteColumnName($dbType, $column) . ") AS max_$column";
+    public static function queryOptions(
+        array  $criteria,
+        string &$sql,
+        string $dbType,
+        string $tableName,
+        bool   $addAggregates = true
+    ): void {
+
+        if ($addAggregates) {
+            $selectParts = [];
+
+            foreach (
+                [
+                    '_max' => 'MAX',
+                    '_min' => 'MIN',
+                    '_count' => 'COUNT',
+                    '_avg' => 'AVG',
+                    '_sum' => 'SUM'
+                ] as $key => $func
+            ) {
+
+                if (!isset($criteria[$key])) continue;
+
+                foreach ($criteria[$key] as $col => $enabled) {
+                    if (!$enabled) continue;
+                    $alias = strtolower(substr($key, 1)) . "_$col";
+                    $quoted = self::quoteColumnName($dbType, $col);
+                    $selectParts[] = "$func($tableName.$quoted) AS $alias";
                 }
             }
-        }
-        if (isset($criteria['_min'])) {
-            foreach ($criteria['_min'] as $column => $enabled) {
-                if ($enabled) {
-                    $selectParts[] = "MIN($tableName." . self::quoteColumnName($dbType, $column) . ") AS min_$column";
-                }
-            }
-        }
-        if (isset($criteria['_count'])) {
-            foreach ($criteria['_count'] as $column => $enabled) {
-                if ($enabled) {
-                    $selectParts[] = "COUNT($tableName." . self::quoteColumnName($dbType, $column) . ") AS count_$column";
-                }
-            }
-        }
-        if (isset($criteria['_avg'])) {
-            foreach ($criteria['_avg'] as $column => $enabled) {
-                if ($enabled) {
-                    $selectParts[] = "AVG($tableName." . self::quoteColumnName($dbType, $column) . ") AS avg_$column";
-                }
-            }
-        }
-        if (isset($criteria['_sum'])) {
-            foreach ($criteria['_sum'] as $column => $enabled) {
-                if ($enabled) {
-                    $selectParts[] = "SUM($tableName." . self::quoteColumnName($dbType, $column) . ") AS sum_$column";
-                }
+
+            if ($selectParts) {
+                $sql = str_replace(
+                    'SELECT',
+                    'SELECT ' . implode(', ', $selectParts) . ',',
+                    $sql
+                );
             }
         }
 
-        // Prepend to SELECT if _max, _min, _count, _avg, or _sum is specified
-        if (!empty($selectParts)) {
-            $sql = str_replace('SELECT', 'SELECT ' . implode(', ', $selectParts) . ',', $sql);
-        }
-
-        // Handle ORDER BY
         if (isset($criteria['orderBy'])) {
-            $orderByParts = self::parseOrderBy($criteria['orderBy'], $dbType, $tableName);
-            if (!empty($orderByParts)) {
-                $sql .= " ORDER BY " . implode(', ', $orderByParts);
+            $parts = self::parseOrderBy($criteria['orderBy'], $dbType, $tableName);
+            if ($parts) {
+                $sql .= ' ORDER BY ' . implode(', ', $parts);
             }
         }
 
-        // Handle LIMIT (take)
         if (isset($criteria['take'])) {
-            $sql .= " LIMIT " . intval($criteria['take']);
+            $sql .= ' LIMIT ' . intval($criteria['take']);
         }
-
-        // Handle OFFSET (skip)
         if (isset($criteria['skip'])) {
-            $sql .= " OFFSET " . intval($criteria['skip']);
+            $sql .= ' OFFSET ' . intval($criteria['skip']);
         }
     }
 
-    private static function parseOrderBy(array $orderBy, $dbType, $tableName): array
-    {
-        $orderByParts = [];
+    private static function parseOrderBy(
+        array  $orderBy,
+        string $dbType,
+        string $tableName
+    ): array {
+        $aggKeys = ['_count', '_avg', '_sum', '_min', '_max'];
+        $parts   = [];
 
-        foreach ($orderBy as $column => $direction) {
-            if (is_array($direction)) {
-                // Handle nested orderBy
-                foreach ($direction as $nestedColumn => $nestedDirection) {
-                    $nestedDirection = strtolower($nestedDirection) === 'desc' ? 'desc' : 'asc';
-                    $orderByParts[] = self::quoteColumnName($dbType, $column) . "." . self::quoteColumnName($dbType, $nestedColumn) . " $nestedDirection";
+        foreach ($orderBy as $key => $value) {
+
+            if (in_array($key, $aggKeys, true) && is_array($value)) {
+                foreach ($value as $field => $dir) {
+                    $alias  = strtolower(substr($key, 1)) . '_' . $field;
+                    $quoted = self::quoteColumnName($dbType, $alias);
+                    $parts[] = $quoted . ' ' . (strtolower($dir) === 'desc' ? 'DESC' : 'ASC');
+                }
+                continue;
+            }
+
+            if (is_array($value)) {
+                foreach ($value as $nested => $dir) {
+                    $dir = strtolower($dir) === 'desc' ? 'DESC' : 'ASC';
+                    $parts[] = self::quoteColumnName($dbType, $key) . '.' .
+                        self::quoteColumnName($dbType, $nested) . " $dir";
                 }
             } else {
-                // Handle regular orderBy
-                $direction = strtolower($direction) === 'desc' ? 'desc' : 'asc';
-                $orderByParts[] = "$tableName." . self::quoteColumnName($dbType, $column) . " $direction";
+                $dir = strtolower($value) === 'desc' ? 'DESC' : 'ASC';
+                $parts[] = "$tableName." . self::quoteColumnName($dbType, $key) . " $dir";
             }
         }
 
-        return $orderByParts;
+        return $parts;
     }
 
     /**
@@ -1481,5 +1467,80 @@ final class PPHPUtility
             }
         }
         throw new Exception('Unable to determine ID field for implicit many‑to‑many lookup.');
+    }
+
+    public static function sqlOperator(string $op): string
+    {
+        return match ($op) {
+            'equals', '='  => '=',
+            'gt'           => '>',
+            'gte'          => '>=',
+            'lt'           => '<',
+            'lte'          => '<=',
+            'not'          => '<>',
+            'in'           => 'IN',
+            'notIn'        => 'NOT IN',
+            'between'      => 'BETWEEN',
+            default        => throw new Exception("Unsupported operator '$op' in HAVING.")
+        };
+    }
+
+    public static function buildHavingClause(
+        array  $having,
+        array  $aggMap,
+        string $dbType,
+        array  &$bindings
+    ): string {
+        if ($having === []) {
+            return '';
+        }
+
+        $useAlias = $dbType !== 'pgsql';
+        $clauses  = [];
+
+        foreach ($having as $aggKey => $fields) {
+            if (!isset($aggMap[$aggKey])) {
+                throw new Exception("Unknown aggregate '$aggKey' in 'having'.");
+            }
+            $sqlFunc = $aggMap[$aggKey];
+
+            foreach ($fields as $field => $comparators) {
+                $alias = strtolower(substr($aggKey, 1)) . '_' . $field;
+                $qf    = self::quoteColumnName($dbType, $field);
+                $expr  = $useAlias ? $alias : "$sqlFunc($qf)";
+
+                foreach ($comparators as $op => $value) {
+                    $sqlOp = self::sqlOperator($op);
+
+                    if ($sqlOp === 'BETWEEN') {
+                        if (!is_array($value) || count($value) !== 2) {
+                            throw new Exception("Operator 'between' expects exactly two values for '$alias'.");
+                        }
+                        $p1 = ':h' . count($bindings) . 'a';
+                        $p2 = ':h' . count($bindings) . 'b';
+                        $bindings[$p1] = $value[0];
+                        $bindings[$p2] = $value[1];
+                        $clauses[] = "$expr BETWEEN $p1 AND $p2";
+                    } elseif (in_array($sqlOp, ['IN', 'NOT IN'], true)) {
+                        if (!is_array($value) || $value === []) {
+                            throw new Exception("Operator '$op' expects a non-empty array for '$alias'.");
+                        }
+                        $phs = [];
+                        foreach ($value as $v) {
+                            $p = ':h' . count($bindings);
+                            $bindings[$p] = $v;
+                            $phs[] = $p;
+                        }
+                        $clauses[] = "$expr $sqlOp (" . implode(', ', $phs) . ')';
+                    } else {
+                        $p = ':h' . count($bindings);
+                        $bindings[$p] = $value;
+                        $clauses[] = "$expr $sqlOp $p";
+                    }
+                }
+            }
+        }
+
+        return $clauses ? ' HAVING ' . implode(' AND ', $clauses) : '';
     }
 }
