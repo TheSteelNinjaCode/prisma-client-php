@@ -2,7 +2,7 @@
 
 namespace Lib\Prisma\Classes;
 
-use PPHP\Validator;
+use Lib\Validator;
 use ReflectionClass;
 use Exception;
 use PDO;
