@@ -1543,4 +1543,68 @@ final class PPHPUtility
 
         return $clauses ? ' HAVING ' . implode(' AND ', $clauses) : '';
     }
+
+    public static function normalizeRowTypes(array $row, array $fieldsByName): array
+    {
+        foreach ($fieldsByName as $name => $meta) {
+            if (!array_key_exists($name, $row)) {
+                continue;
+            }
+            if (($meta['kind'] ?? null) !== 'scalar') {
+                continue;
+            }
+
+            $type = $meta['type'] ?? null;
+            $row[$name] = self::normalizeValueByType($row[$name], $type);
+        }
+        return $row;
+    }
+
+    public static function normalizeListTypes(array $rows, array $fieldsByName): array
+    {
+        foreach ($rows as $i => $row) {
+            if (is_array($row)) {
+                $rows[$i] = self::normalizeRowTypes($row, $fieldsByName);
+            } elseif (is_object($row)) {
+                $rows[$i] = (object) self::normalizeRowTypes((array) $row, $fieldsByName);
+            }
+        }
+        return $rows;
+    }
+
+    private static function normalizeValueByType(mixed $value, ?string $type): mixed
+    {
+        if ($value === null) return null;
+
+        switch ($type) {
+            case 'Boolean':
+                return self::toBool($value);
+            case 'Int':
+                return (int) $value;
+            case 'BigInt':
+                return (string) $value;
+            case 'Decimal':
+                return (string) $value;
+            case 'DateTime':
+                return Validator::dateTime($value);
+            default:
+                return $value;
+        }
+    }
+
+    public static function toBool(mixed $v): bool
+    {
+        $b = Validator::boolean($v);
+        if ($b !== null) return $b;
+
+        if (is_numeric($v)) return ((int) $v) === 1;
+
+        if (is_string($v)) {
+            $s = strtolower(trim($v));
+            if (in_array($s, ['t', 'y', 'yes'], true))  return true;
+            if (in_array($s, ['f', 'n', 'no'], true))   return false;
+        }
+
+        return (bool) $v;
+    }
 }
