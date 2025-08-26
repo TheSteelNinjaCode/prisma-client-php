@@ -1,28 +1,28 @@
-// import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
-// const prisma = new PrismaClient();
+const prisma = new PrismaClient();
 
-// // UserRole
-// const userRoleData = [
-//   {
-//     name: "Admin",
-//   },
-//   {
-//     name: "User",
-//   },
-// ];
+const userRoleData = [
+  {
+    id: 1,
+    name: "Admin",
+  },
+  {
+    id: 2,
+    name: "User",
+  },
+];
 
-// // User
-// const userData = [
-//   {
-//     name: "Juan",
-//     email: "j@gmail.com",
-//     password: "$2b$10$mgjotYzIXwrK1MCWmu4tgeUVnLcb.qzvqwxOq4FXEL8k2obwXivDi", // TODO: template password 1234 (bcrypt) testing only
-//     roleId: 1,
-//   },
-// ];
+const userData = [
+  {
+    name: "Juan",
+    email: "j@gmail.com",
+    password: "$2b$10$mgjotYzIXwrK1MCWmu4tgeUVnLcb.qzvqwxOq4FXEL8k2obwXivDi", // TODO: template password 1234 (bcrypt) testing only
+    roleId: 1,
+  },
+];
 
-// async function main() {
+async function main() {
   // ========================================
   // Code for PostgreSQL
   // ----------------------------------------
@@ -63,12 +63,12 @@
   // await prisma.user.deleteMany();
   // await prisma.user.createMany({ data: userData });
   // ========================================
-// }
+}
 
-// main()
-//   .catch((e) => {
-//     throw e;
-//   })
-//   .finally(async () => {
-//     await prisma.$disconnect();
-//   });
+main()
+  .catch((e) => {
+    throw e;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

@@ -72,9 +72,6 @@ function installNpmDependencies(isPrismaPHP) {
   if (fs.existsSync(packageJsonPath)) {
     const packageJsonContent = fs.readFileSync(packageJsonPath, "utf8");
     packageJson = JSON.parse(packageJsonContent);
-    packageJson.prisma = {
-      seed: "tsx prisma/seed.ts",
-    };
     if (!isPrismaPHP) {
       packageJson.type = "module";
     }
@@ -224,6 +221,17 @@ async function main() {
       isPrismaPHP
     );
   });
+  function copyFileVerbose(src, dest) {
+    if (!fs.existsSync(src)) {
+      console.warn(`File not found (skip): ${src}`);
+      return;
+    }
+    fs.copyFileSync(src, dest);
+    console.log(`Copied file: ${path.basename(src)} -> ${dest}`);
+  }
+  const prismaConfigSrc = path.join(__dirname, "prisma.config.ts");
+  const prismaConfigDest = path.join(process.cwd(), "prisma.config.ts");
+  copyFileVerbose(prismaConfigSrc, prismaConfigDest);
   console.log("Finished copying directories.");
 }
 // Run the main function
