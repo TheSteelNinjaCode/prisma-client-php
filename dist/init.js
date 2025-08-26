@@ -227,7 +227,7 @@ async function main() {
       return;
     }
     fs.copyFileSync(src, dest);
-    console.log(`Copied file: ${path.basename(src)} -> ${dest}`);
+    console.log(`Copied file: ${path.basename(src)}`);
   }
   const prismaConfigSrc = path.join(__dirname, "prisma.config.ts");
   const prismaConfigDest = path.join(process.cwd(), "prisma.config.ts");
