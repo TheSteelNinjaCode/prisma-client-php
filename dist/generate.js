@@ -2,16 +2,27 @@ import*as fs from"fs";import{exec}from"child_process";import path from"path";imp
 const executePHP = (command) => {
   exec(command, (error, stdout, stderr) => {
     if (error) {
-      console.error(`Execution error: ${error}`);
+      if (stderr?.trim()) console.error(stderr);
+      console.error(`Execution error: ${error.message}`);
       return;
     }
-    if (stderr) {
-      console.error(`Standard error: ${stderr}`);
-      return;
+    if (stderr?.trim()) {
+      const filtered = stderr
+        .split(/\r?\n/)
+        .filter(
+          (line) =>
+            line.trim() &&
+            !/Loaded Prisma config from/i.test(line) &&
+            !/Prisma config detected, skipping environment variable loading/i.test(
+              line
+            )
+        )
+        .join("\n");
+      if (filtered) console.warn(filtered);
     }
     if (stdout.includes("Result: Prisma schema is valid.")) {
-      console.error(chalk.blue(stdout));
-    } else {
+      console.log(chalk.blue(stdout));
+    } else if (stdout.trim()) {
       console.log(`Standard output...\n${stdout}`);
     }
   });
