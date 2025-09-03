@@ -121,6 +121,8 @@ final class PPHPUtility
      */
     public static function checkFieldsExist(array $select, array $fields, string $modelName)
     {
+        $virtualFields = ['_count', '_max', '_min', '_avg', '_sum'];
+
         foreach ($select as $key => $value) {
             if (is_numeric($key) && is_string($value)) {
                 if (self::fieldExists($key, $fields))
@@ -129,11 +131,13 @@ final class PPHPUtility
 
             if (isset($value) && empty($value) || !is_bool($value)) {
                 if (is_string($key) && !self::fieldExists($key, $fields)) {
+                    if (in_array($key, $virtualFields)) {
+                        continue;
+                    }
                     throw new Exception("The field '$key' does not exist in the $modelName model.");
                 }
 
                 if (is_array($value) && !empty($value)) {
-
                     $isRelatedModel = false;
 
                     foreach ($fields as $field) {
@@ -162,6 +166,9 @@ final class PPHPUtility
             foreach (explode(',', $key) as $fieldName) {
                 $fieldName = trim($fieldName);
                 if (!self::fieldExists($fieldName, $fields)) {
+                    if (in_array($fieldName, $virtualFields)) {
+                        continue;
+                    }
                     throw new Exception("The field '$fieldName' does not exist in the $modelName model.");
                 }
             }
@@ -219,13 +226,15 @@ final class PPHPUtility
      */
     public static function checkIncludes(array $include, array &$relatedEntityFields, array &$includes, array $fields, string $modelName)
     {
+        $virtualFields = ['_count', '_max', '_min', '_avg', '_sum'];
+
         if (isset($include) && is_array($include)) {
             foreach ($include as $key => $value) {
                 if (is_array($value) && array_key_exists('join.type', $value)) {
                     continue;
                 }
 
-                if ($key === '_count' && is_array($value) && array_key_exists('select', $value)) {
+                if (in_array($key, $virtualFields)) {
                     $includes[$key] = $value;
                     continue;
                 }
