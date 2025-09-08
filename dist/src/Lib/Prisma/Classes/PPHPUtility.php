@@ -1191,7 +1191,42 @@ final class PPHPUtility
             $records = [$records];
         }
 
+        $virtualFields = ['_count', '_max', '_min', '_avg', '_sum'];
+        foreach ($virtualFields as $virtualField) {
+            if (!isset($includes[$virtualField])) {
+                continue;
+            }
+
+            $aggregateOptions = $includes[$virtualField];
+            if (isset($aggregateOptions['select'])) {
+                foreach ($records as $idx => $record) {
+                    $records[$idx][$virtualField] = [];
+
+                    foreach ($aggregateOptions['select'] as $relationName => $enabled) {
+                        if (!$enabled || !isset($fields[$relationName], $fieldsRelatedWithKeys[$relationName])) {
+                            continue;
+                        }
+
+                        $count = self::countRelatedRecords(
+                            $record,
+                            $relationName,
+                            $fields[$relationName],
+                            $fieldsRelatedWithKeys[$relationName],
+                            $pdo,
+                            $dbType
+                        );
+
+                        $records[$idx][$virtualField][$relationName] = $count;
+                    }
+                }
+            }
+        }
+
         foreach ($includes as $relationName => $relationOpts) {
+            if (in_array($relationName, $virtualFields)) {
+                continue;
+            }
+
             if ($relationOpts === false) {
                 continue;
             }
@@ -1274,6 +1309,84 @@ final class PPHPUtility
         }
 
         return $isSingle ? $records[0] : $records;
+    }
+
+    private static function countRelatedRecords(
+        array $record,
+        string $relationName,
+        array $relatedField,
+        array $relatedKeys,
+        PDO $pdo,
+        string $dbType
+    ): int {
+        $relatedInstance = self::makeRelatedInstance($relatedField['type'], $pdo);
+
+        if (!empty($relatedKeys['relationFromFields']) && !empty($relatedKeys['relationToFields'])) {
+            $conditions = [];
+            foreach ($relatedKeys['relationFromFields'] as $i => $fromField) {
+                $toField = $relatedKeys['relationToFields'][$i];
+
+                if (isset($relatedInstance->_fields[$fromField])) {
+                    $conditions[$fromField] = $record[$toField] ?? null;
+                } else {
+                    $conditions[$toField] = $record[$fromField] ?? null;
+                }
+            }
+
+            if (empty(array_filter($conditions))) {
+                return 0;
+            }
+
+            $whereClause = [];
+            $bindings = [];
+            $counter = 0;
+
+            foreach ($conditions as $field => $value) {
+                $placeholder = ':count_' . $counter++;
+                $quotedField = self::quoteColumnName($dbType, $field);
+                $whereClause[] = "$quotedField = $placeholder";
+                $bindings[$placeholder] = $value;
+            }
+
+            $tableName = self::quoteColumnName($dbType, $relatedInstance->_tableName);
+            $sql = "SELECT COUNT(*) FROM $tableName WHERE " . implode(' AND ', $whereClause);
+
+            $stmt = $pdo->prepare($sql);
+            foreach ($bindings as $key => $value) {
+                $stmt->bindValue($key, $value);
+            }
+            $stmt->execute();
+
+            return (int) $stmt->fetchColumn();
+        }
+
+        if (empty($relatedKeys['relationFromFields']) && empty($relatedKeys['relationToFields'])) {
+            $implicitModelInfo = self::compareStringsAlphabetically($relatedField['type'], get_class($relatedInstance));
+            $searchColumn = ($relatedField['type'] === $implicitModelInfo['A']) ? 'B' : 'A';
+
+            $idField = null;
+            foreach ($record as $key => $value) {
+                if ($key === 'id' || str_ends_with($key, 'Id')) {
+                    $idField = $key;
+                    break;
+                }
+            }
+
+            if (!$idField || !isset($record[$idField])) {
+                return 0;
+            }
+
+            $tableName = self::quoteColumnName($dbType, $implicitModelInfo['Name']);
+            $searchColumnQuoted = self::quoteColumnName($dbType, $searchColumn);
+
+            $sql = "SELECT COUNT(*) FROM $tableName WHERE $searchColumnQuoted = :id";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute(['id' => $record[$idField]]);
+
+            return (int) $stmt->fetchColumn();
+        }
+
+        return 0;
     }
 
     private static function pickOppositeField(array $allFields, string $relationName, bool $isListOnCaller): array
