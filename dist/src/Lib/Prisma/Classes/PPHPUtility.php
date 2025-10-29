@@ -2,7 +2,7 @@
 
 namespace Lib\Prisma\Classes;
 
-use Lib\Validator;
+use PP\Validator;
 use ReflectionClass;
 use Exception;
 use PDO;
@@ -122,8 +122,21 @@ final class PPHPUtility
     public static function checkFieldsExist(array $select, array $fields, string $modelName)
     {
         $virtualFields = ['_count', '_max', '_min', '_avg', '_sum'];
+        $logicKeys     = ['AND', 'OR', 'NOT'];
 
         foreach ($select as $key => $value) {
+
+            if (is_string($key) && in_array($key, $logicKeys, true)) {
+                if (is_array($value)) {
+                    foreach ($value as $sub) {
+                        if (is_array($sub)) {
+                            self::checkFieldsExist($sub, $fields, $modelName);
+                        }
+                    }
+                }
+                continue;
+            }
+
             if (is_numeric($key) && is_string($value)) {
                 if (self::fieldExists($key, $fields))
                     throw new Exception("The '$value' is indexed, waiting example: ['$value' => true]");
@@ -131,29 +144,31 @@ final class PPHPUtility
 
             if (isset($value) && empty($value) || !is_bool($value)) {
                 if (is_string($key) && !self::fieldExists($key, $fields)) {
-                    if (in_array($key, $virtualFields)) {
+                    if (in_array($key, $virtualFields, true)) {
                         continue;
                     }
                     throw new Exception("The field '$key' does not exist in the $modelName model.");
                 }
 
                 if (is_array($value) && !empty($value)) {
-                    $isRelatedModel = false;
-
-                    foreach ($fields as $field) {
-                        $isObject = $field['kind'] === 'object' ? true : false;
-                        $fieldName = $field['name'];
-
-                        if ($isObject && $fieldName === $key) {
-                            $isRelatedModel = true;
-                        }
+                    if (self::isOperatorArray($value)) {
+                        continue;
                     }
 
+                    $isRelatedModel = false;
+                    foreach ($fields as $field) {
+                        $isObject  = ($field['kind'] ?? null) === 'object';
+                        $fieldName = $field['name'] ?? null;
+                        if ($isObject && $fieldName === $key) {
+                            $isRelatedModel = true;
+                            break;
+                        }
+                    }
                     if ($isRelatedModel) continue;
 
                     $keys = array_keys($value);
                     foreach ($keys as $fieldName) {
-                        $fieldName = trim($fieldName);
+                        $fieldName = trim((string)$fieldName);
                         if (!self::fieldExists($fieldName, $fields)) {
                             throw new Exception("The field '$fieldName' does not exist in the $modelName model.");
                         }
@@ -163,10 +178,10 @@ final class PPHPUtility
                 continue;
             }
 
-            foreach (explode(',', $key) as $fieldName) {
+            foreach (explode(',', (string)$key) as $fieldName) {
                 $fieldName = trim($fieldName);
                 if (!self::fieldExists($fieldName, $fields)) {
-                    if (in_array($fieldName, $virtualFields)) {
+                    if (in_array($fieldName, $virtualFields, true)) {
                         continue;
                     }
                     throw new Exception("The field '$fieldName' does not exist in the $modelName model.");
@@ -1010,6 +1025,30 @@ final class PPHPUtility
                         $whereCondition = $op[$modelRelatedFieldType];
                         $relatedResult = $relatedClass->delete(['where' => $whereCondition]);
                         break;
+                    case 'deleteMany':
+                        if ($isExplicitOneToMany) {
+                            foreach ($operations as $opDelete) {
+                                if (!isset($opDelete['where'])) {
+                                    throw new Exception("deleteMany requires 'where' for '{$relatedFieldName}'.");
+                                }
+
+                                $where = $opDelete['where'];
+
+                                if (!empty($childFkFields)) {
+                                    $parentId = $opDelete[$childFkFields[0]] ?? null;
+                                    if ($parentId !== null) {
+                                        $where[$childFkFields[0]] = $parentId;
+                                    }
+                                }
+
+                                $relatedClass->deleteMany(['where' => $where]);
+                            }
+
+                            return [];
+                        } else {
+                            throw new Exception("deleteMany is only supported for one-to-many relations.");
+                        }
+                        break;
                     case 'disconnect':
                         if ($isExplicitOneToMany) {
                             foreach ($operations as $opDisc) {
@@ -1037,68 +1076,73 @@ final class PPHPUtility
                         break;
                     case 'set':
                         if ($isExplicitOneToMany) {
+                            if (empty($operations)) {
+                                return [];
+                            }
+
                             $parentId = $operations[0][$childFkFields[0]]
                                 ?? throw new Exception("Missing parent id in 'set' for '{$relatedFieldName}'.");
 
-                            $keepIds = [];
-                            foreach ($operations as $opSet) {
-                                if (isset($opSet[$relatedClass->_primaryKey])) {
-                                    $keepIds[] = $opSet[$relatedClass->_primaryKey];
+                            $newIds = [];
+                            $keyFields = [];
+
+                            $keyFields = array_merge($keyFields, $childFkFields);
+
+                            foreach ($relatedClass->_fields as $fieldName => $fieldMeta) {
+                                $kind = $fieldMeta['kind'] ?? 'scalar';
+                                $isReadOnly = $fieldMeta['isReadOnly'] ?? false;
+
+                                if ($kind === 'scalar' && $isReadOnly && $fieldName !== 'id') {
+                                    $keyFields[] = $fieldName;
                                 }
                             }
 
-                            $deleteWhere = [
-                                $childFkFields[0] => $parentId,
-                            ];
-                            if ($keepIds) {
-                                $deleteWhere[$relatedClass->_primaryKey] = ['notIn' => $keepIds];
+                            $keyFields = array_unique($keyFields);
+
+                            foreach ($operations as $opSet) {
+                                $data = $opSet;
+
+                                $where = [];
+                                foreach ($keyFields as $field) {
+                                    if (isset($data[$field])) {
+                                        $where[$field] = $data[$field];
+                                    }
+                                }
+
+                                if (empty($where)) {
+                                    throw new Exception("Cannot determine unique identifier for '{$relatedFieldName}'. No key fields found.");
+                                }
+
+                                $existing = $relatedClass->findFirst(['where' => $where]);
+
+                                if ($existing) {
+                                    $relatedClass->update([
+                                        'where' => ['id' => $existing->id],
+                                        'data' => $data,
+                                    ]);
+                                    $newIds[] = $existing->id;
+                                } else {
+                                    $created = $relatedClass->create(['data' => $data]);
+                                    $newIds[] = $created->id;
+                                }
+                            }
+
+                            if (!empty($newIds)) {
+                                $deleteWhere = [
+                                    $childFkFields[0] => $parentId,
+                                    'id' => ['notIn' => $newIds],
+                                ];
+                            } else {
+                                $deleteWhere = [$childFkFields[0] => $parentId];
                             }
 
                             $relatedClass->deleteMany(['where' => $deleteWhere]);
 
-                            $newIds = [];
-                            foreach ($operations as $opSet) {
-                                $where    = array_diff_key($opSet, array_flip($childFkFields));
-                                $fkUpdate = array_fill_keys($childFkFields, $parentId);
-
-                                $row = $relatedClass->upsert([
-                                    'where'  => $where,
-                                    'update' => $fkUpdate,
-                                    'create' => array_merge($where, $fkUpdate),
-                                ]);
-
-                                $newIds[] = $row->{$relatedClass->_primaryKey};
-                            }
-
-                            $relatedResult = $relatedClass->findMany([
-                                'where' => [
-                                    $relatedClass->_primaryKey => ['in' => $newIds],
-                                ],
-                            ]);
-                            $relatedResult = (array)$relatedResult;
-
-                            if (!$requestOption) {
-                                return $relatedResult;
-                            }
-                            if (!$relatedResult) {
-                                throw new Exception("Failed to process related record for '{$relatedFieldName}'.");
-                            }
-
-                            if ($modelRelatedFieldIsList) {
-                                return [];
-                            }
-
-                            $bindings = [];
-                            foreach ($modelRelatedFromFields as $i => $fromField) {
-                                $toField = $modelRelatedToFields[$i];
-                                if (!isset($relatedResult[$toField])) {
-                                    throw new Exception("The field '{$toField}' is missing …");
-                                }
-                            }
-                            return $bindings;
+                            return [];
                         } elseif (empty($modelRelatedFromFields) && empty($modelRelatedToFields)) {
                             $newRelatedIds = [];
                             $primaryId = null;
+
                             foreach ($operations as $opSet) {
                                 $relatedFieldData = $opSet[$modelRelatedFieldType];
                                 $modelFieldData   = $opSet[$modelName];
@@ -1144,16 +1188,189 @@ final class PPHPUtility
                         $relatedFieldData = $op[$modelRelatedFieldType];
                         $relatedResult = $relatedClass->update(['where' => $relatedFieldData['where'], 'data' => $relatedFieldData['data']]);
                         break;
-                    case 'upsert':
-                        $relatedFieldData = $op[$modelRelatedFieldType];
-                        $existing = $relatedClass->findUnique(['where' => $relatedFieldData['where']]);
+                    case 'updateMany':
+                        if ($isExplicitOneToMany) {
+                            if (empty($operations)) {
+                                return [];
+                            }
 
-                        if ($existing) {
-                            $relatedResult = $relatedClass->update(['where' => $relatedFieldData['where'], 'data' => $relatedFieldData['data']]);
+                            $parentId = $operations[0][$childFkFields[0]] ?? null;
+                            if ($parentId === null) {
+                                throw new Exception("Missing parent id in 'updateMany' for '{$relatedFieldName}'.");
+                            }
+
+                            $fieldUpdates = [];
+                            $ids = [];
+
+                            foreach ($operations as $opUpdate) {
+                                $where = $opUpdate['where'];
+                                $data = $opUpdate['data'];
+
+                                $record = $relatedClass->findFirst([
+                                    'where' => array_merge($where, [$childFkFields[0] => $parentId])
+                                ]);
+                                if (!$record) continue;
+
+                                $ids[] = $record->id;
+
+                                foreach ($data as $field => $value) {
+                                    if (!isset($fieldUpdates[$field])) {
+                                        $fieldUpdates[$field] = [];
+                                    }
+                                    $fieldUpdates[$field][$record->id] = $value;
+                                }
+                            }
+
+                            if (empty($ids)) {
+                                return [];
+                            }
+
+                            $tableName = PPHPUtility::quoteColumnName($dbType, $relatedClass->_tableName);
+                            $idColumn = PPHPUtility::quoteColumnName($dbType, 'id');
+
+                            $setClauses = [];
+                            $bindings = [];
+
+                            foreach ($fieldUpdates as $field => $updates) {
+                                $fieldQuoted = PPHPUtility::quoteColumnName($dbType, $field);
+                                $caseWhen = "CASE";
+
+                                foreach ($updates as $id => $value) {
+                                    $placeholder = ":upd_{$field}_" . count($bindings);
+                                    $idPlaceholder = ":id_case_" . count($bindings);
+                                    $caseWhen .= " WHEN $idColumn = $idPlaceholder THEN $placeholder";
+                                    $bindings[$idPlaceholder] = $id;
+                                    $bindings[$placeholder] = $value;
+                                }
+
+                                $caseWhen .= " ELSE $fieldQuoted END";
+                                $setClauses[] = "$fieldQuoted = $caseWhen";
+                            }
+
+                            $idPlaceholders = [];
+                            foreach ($ids as $id) {
+                                $placeholder = ":id_" . count($bindings);
+                                $idPlaceholders[] = $placeholder;
+                                $bindings[$placeholder] = $id;
+                            }
+
+                            $sql = "UPDATE $tableName SET " . implode(', ', $setClauses) .
+                                " WHERE $idColumn IN (" . implode(', ', $idPlaceholders) . ")";
+
+                            $stmt = $pdo->prepare($sql);
+                            foreach ($bindings as $key => $value) {
+                                $stmt->bindValue($key, $value);
+                            }
+                            $stmt->execute();
+
+                            return [];
                         } else {
-                            $relatedResult = $relatedClass->create(['data' => $op]);
+                            throw new Exception("updateMany is only supported for one-to-many relations.");
                         }
                         break;
+                    case 'upsert':
+                        if ($isExplicitOneToMany) {
+                            if (empty($operations)) {
+                                return [];
+                            }
+
+                            $parentId = $operations[0][$childFkFields[0]] ?? null;
+                            if ($parentId === null) {
+                                throw new Exception("Missing parent id in 'upsert' for '{$relatedFieldName}'.");
+                            }
+
+                            $tableName = PPHPUtility::quoteColumnName($dbType, $relatedClass->_tableName);
+                            $allFields = [];
+                            $values = [];
+                            $bindings = [];
+
+                            $sampleOp = $operations[0];
+                            $createData = $sampleOp['create'];
+                            $createData[$childFkFields[0]] = $parentId;
+                            $fields = array_keys($createData);
+
+                            foreach ($fields as $field) {
+                                $allFields[] = PPHPUtility::quoteColumnName($dbType, $field);
+                            }
+
+                            foreach ($operations as $idx => $opUpsert) {
+                                $createData = $opUpsert['create'];
+                                $createData[$childFkFields[0]] = $parentId;
+
+                                $rowPlaceholders = [];
+                                foreach ($fields as $field) {
+                                    $placeholder = ":v{$idx}_{$field}";
+                                    $rowPlaceholders[] = $placeholder;
+                                    $bindings[$placeholder] = $createData[$field] ?? null;
+                                }
+                                $values[] = '(' . implode(', ', $rowPlaceholders) . ')';
+                            }
+
+                            if ($dbType === 'mysql') {
+                                $updateClauses = [];
+                                foreach ($fields as $field) {
+                                    if ($field !== 'id') {
+                                        $fieldQuoted = PPHPUtility::quoteColumnName($dbType, $field);
+                                        $updateClauses[] = "$fieldQuoted = VALUES($fieldQuoted)";
+                                    }
+                                }
+
+                                $sql = "INSERT INTO $tableName (" . implode(', ', $allFields) . ") VALUES " .
+                                    implode(', ', $values) .
+                                    " ON DUPLICATE KEY UPDATE " . implode(', ', $updateClauses);
+                            } elseif ($dbType === 'pgsql') {
+                                $updateClauses = [];
+                                $conflictFields = [];
+
+                                foreach ($operations[0]['where'] as $whereField => $whereValue) {
+                                    $conflictFields[] = PPHPUtility::quoteColumnName($dbType, $whereField);
+                                }
+
+                                foreach ($fields as $field) {
+                                    if ($field !== 'id' && !in_array($field, array_keys($operations[0]['where']))) {
+                                        $fieldQuoted = PPHPUtility::quoteColumnName($dbType, $field);
+                                        $updateClauses[] = "$fieldQuoted = EXCLUDED.$fieldQuoted";
+                                    }
+                                }
+
+                                $sql = "INSERT INTO $tableName (" . implode(', ', $allFields) . ") VALUES " .
+                                    implode(', ', $values) .
+                                    " ON CONFLICT (" . implode(', ', $conflictFields) . ") DO UPDATE SET " .
+                                    implode(', ', $updateClauses);
+                            } elseif ($dbType === 'sqlite') {
+                                $updateClauses = [];
+                                $conflictFields = [];
+
+                                foreach ($operations[0]['where'] as $whereField => $whereValue) {
+                                    $conflictFields[] = PPHPUtility::quoteColumnName($dbType, $whereField);
+                                }
+
+                                foreach ($fields as $field) {
+                                    if ($field !== 'id' && !in_array($field, array_keys($operations[0]['where']))) {
+                                        $fieldQuoted = PPHPUtility::quoteColumnName($dbType, $field);
+                                        $updateClauses[] = "$fieldQuoted = excluded.$fieldQuoted";
+                                    }
+                                }
+
+                                $sql = "INSERT INTO $tableName (" . implode(', ', $allFields) . ") VALUES " .
+                                    implode(', ', $values) .
+                                    " ON CONFLICT (" . implode(', ', $conflictFields) . ") DO UPDATE SET " .
+                                    implode(', ', $updateClauses);
+                            } else {
+                                throw new Exception("Unsupported database type: $dbType");
+                            }
+
+                            $stmt = $pdo->prepare($sql);
+                            foreach ($bindings as $key => $value) {
+                                $stmt->bindValue($key, $value);
+                            }
+                            $stmt->execute();
+
+                            return [];
+                        }
+                        break;
+                    default:
+                        throw new Exception("Unsupported operation '$action' for relation '{$relatedFieldName}'.");
                 }
             }
         }
