@@ -64,6 +64,10 @@ final class PPHPUtility
                 }
 
                 if (is_string($key) && is_array($value)) {
+                    if (self::isAtomicOperationArray($value)) {
+                        continue;
+                    }
+
                     if (isset($value['select'])) {
                         $relatedEntityFields[$key] = $value['select'];
                     } elseif (isset($value['include'])) {
@@ -155,6 +159,10 @@ final class PPHPUtility
                         continue;
                     }
 
+                    if (self::isAtomicOperationArray($value)) {
+                        continue;
+                    }
+
                     $isRelatedModel = false;
                     foreach ($fields as $field) {
                         $isObject  = ($field['kind'] ?? null) === 'object';
@@ -188,6 +196,17 @@ final class PPHPUtility
                 }
             }
         }
+    }
+
+    private static function isAtomicOperationArray(array $arr): bool
+    {
+        $atomicOps = ['increment', 'decrement', 'multiply', 'divide'];
+        foreach ($arr as $key => $value) {
+            if (in_array($key, $atomicOps, true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function fieldExists(string $key, array $fields): bool
@@ -344,7 +363,23 @@ final class PPHPUtility
 
     private static function isOperatorArray(array $arr)
     {
-        $operators = ['contains', 'startsWith', 'endsWith', 'equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn'];
+        $operators = [
+            'contains',
+            'startsWith',
+            'endsWith',
+            'equals',
+            'not',
+            'gt',
+            'gte',
+            'lt',
+            'lte',
+            'in',
+            'notIn',
+            'increment',
+            'decrement',
+            'multiply',
+            'divide'
+        ];
         foreach ($arr as $key => $value) {
             if (!in_array($key, $operators)) {
                 return false;
