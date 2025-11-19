@@ -1220,8 +1220,23 @@ final class PPHPUtility
                         }
                         break;
                     case 'update':
-                        $relatedFieldData = $op[$modelRelatedFieldType];
-                        $relatedResult = $relatedClass->update(['where' => $relatedFieldData['where'], 'data' => $relatedFieldData['data']]);
+                        if (!empty($modelRelatedFromFields) && !empty($modelRelatedToFields)) {
+                            $relatedResult = $relatedClass->update([
+                                'where' => $op['where'],
+                                'data' => $op['data']
+                            ]);
+                        } else {
+                            if (!isset($op[$modelRelatedFieldType])) {
+                                throw new Exception(
+                                    "Expected '{$modelRelatedFieldType}' key in update operation for implicit relation '{$relatedFieldName}'."
+                                );
+                            }
+                            $relatedFieldData = $op[$modelRelatedFieldType];
+                            $relatedResult = $relatedClass->update([
+                                'where' => $relatedFieldData['where'],
+                                'data' => $relatedFieldData['data']
+                            ]);
+                        }
                         break;
                     case 'updateMany':
                         if ($isExplicitOneToMany) {
