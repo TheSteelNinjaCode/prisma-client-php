@@ -764,7 +764,7 @@ final class PPHPUtility
                 ? $pathPrefix . '.' . $relationName
                 : $relationName;
 
-            $fieldsOnly = $relatedClass->fieldsOnly ?? [];
+            $fieldsOnly = $relatedClass->_fieldsOnly ?? [];
             foreach ($fieldsOnly as $field) {
                 $quotedField       = PPHPUtility::quoteColumnName($dbType, $field);
                 $columnAlias       = $childPathPrefix . '.' . $field;      // e.g. "post.categories.id"
