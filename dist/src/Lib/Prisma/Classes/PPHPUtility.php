@@ -1430,6 +1430,15 @@ final class PPHPUtility
         if (!$requestOption) {
             return $relatedResult;
         }
+
+        if ($modelRelatedFieldIsList && $isExplicitOneToMany) {
+            return [];
+        }
+
+        if ($modelRelatedFieldIsList && empty($modelRelatedFromFields)) {
+            return [];
+        }
+
         if (!$relatedResult) {
             throw new Exception("Failed to process related record for '{$relatedFieldName}'.");
         }
