@@ -1637,29 +1637,53 @@ final class PPHPUtility
         }
 
         if (empty($relatedKeys['relationFromFields']) && empty($relatedKeys['relationToFields'])) {
-            $implicitModelInfo = self::compareStringsAlphabetically($relatedField['type'], get_class($relatedInstance));
-            $searchColumn = ($relatedField['type'] === $implicitModelInfo['A']) ? 'B' : 'A';
+            if ($relatedField['type'] === $relatedInstance->_modelName) {
+                $relationName = $relatedField['relationName'] ?? null;
 
-            $idField = null;
-            foreach ($record as $key => $value) {
-                if ($key === 'id' || str_ends_with($key, 'Id')) {
-                    $idField = $key;
-                    break;
+                foreach ($relatedInstance->_fields as $fieldName => $fieldMeta) {
+                    if (($fieldMeta['relationName'] ?? null) === $relationName
+                        && !empty($relatedInstance->_fieldsRelatedWithKeys[$fieldName]['relationFromFields'])
+                    ) {
+
+                        $oppositeKeys = $relatedInstance->_fieldsRelatedWithKeys[$fieldName];
+                        $relatedKeys = [
+                            'relationFromFields' => $oppositeKeys['relationFromFields'],
+                            'relationToFields' => $oppositeKeys['relationToFields']
+                        ];
+                        break;
+                    }
                 }
+
+                if (empty($relatedKeys['relationFromFields'])) {
+                    return 0;
+                }
+            } else {
+                $relatedClassName = $relatedInstance->_modelName ?? basename(str_replace('\\', '/', get_class($relatedInstance)));
+
+                $implicitModelInfo = self::compareStringsAlphabetically($relatedField['type'], $relatedClassName);
+                $searchColumn = ($relatedField['type'] === $implicitModelInfo['A']) ? 'B' : 'A';
+
+                $idField = null;
+                foreach ($record as $key => $value) {
+                    if ($key === 'id' || str_ends_with($key, 'Id')) {
+                        $idField = $key;
+                        break;
+                    }
+                }
+
+                if (!$idField || !isset($record[$idField])) {
+                    return 0;
+                }
+
+                $tableName = self::quoteColumnName($dbType, $implicitModelInfo['Name']);
+                $searchColumnQuoted = self::quoteColumnName($dbType, $searchColumn);
+
+                $sql = "SELECT COUNT(*) FROM $tableName WHERE $searchColumnQuoted = :id";
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute(['id' => $record[$idField]]);
+
+                return (int) $stmt->fetchColumn();
             }
-
-            if (!$idField || !isset($record[$idField])) {
-                return 0;
-            }
-
-            $tableName = self::quoteColumnName($dbType, $implicitModelInfo['Name']);
-            $searchColumnQuoted = self::quoteColumnName($dbType, $searchColumn);
-
-            $sql = "SELECT COUNT(*) FROM $tableName WHERE $searchColumnQuoted = :id";
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute(['id' => $record[$idField]]);
-
-            return (int) $stmt->fetchColumn();
         }
 
         return 0;
