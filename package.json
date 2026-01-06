@@ -1,7 +1,7 @@
 {
   "name": "prisma-client-php",
   "description": "Prisma Client PHP is an auto-generated query builder that enables type-safe database access in PHP.",
-  "version": "4.1.9",
+  "version": "4.1.10",
   "main": "index.js",
   "type": "module",
   "scripts": {
