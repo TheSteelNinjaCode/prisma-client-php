@@ -398,7 +398,7 @@ final class PPHPUtility
                     $sqlConditions,
                     $bindings,
                     $dbType,
-                    $key,
+                    $tableName,
                     $prefix . $key . '_',
                     $level + 1
                 );
