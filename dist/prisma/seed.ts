@@ -26,10 +26,9 @@ import { PrismaClient } from "@prisma/client";
 
 // --- OPTION C: MYSQL / MARIADB ------------------------------
 // import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-// import { PoolConfig } from "mariadb";
 
 // const connectionUrl = new URL(process.env.DATABASE_URL!);
-// const poolConfig: PoolConfig = {
+// const poolConfig = {
 //   host: connectionUrl.hostname,
 //   port: Number(connectionUrl.port) || 3306,
 //   user: connectionUrl.username,
