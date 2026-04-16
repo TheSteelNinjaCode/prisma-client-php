@@ -40,11 +40,6 @@ import { PrismaClient } from "@prisma/client";
 // const prisma = new PrismaClient({ adapter });
 // ------------------------------------------------------------
 
-// --- DEFAULT (NO ADAPTER) -----------------------------------
-// If you just want standard Prisma without specific drivers:
-const prisma = new PrismaClient();
-// ------------------------------------------------------------
-
 // ============================================================
 // 2. DATA DEFINITION
 // ============================================================
